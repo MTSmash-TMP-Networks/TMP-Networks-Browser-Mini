@@ -129,10 +129,6 @@ Beiträge sind willkommen! Folgen Sie diesen Schritten, um zum Projekt beizutrag
 
 Dieses Projekt ist lizenziert unter der [MIT License](LICENSE).
 
-## Sicherheitshinweis
-
-**Wichtig:** Die gespeicherten Passwörter werden gespeichert, jedoch sollten Sie sicherstellen, dass die Passwort-Datei sicher aufbewahrt wird und nicht in das Repository aufgenommen wird. Fügen Sie die Passwort-Datei zur `.gitignore`-Datei hinzu, um eine versehentliche Veröffentlichung zu verhindern.
-
 ## Kontakt
 
 Bei Fragen oder Vorschlägen kontaktieren Sie mich gerne unter [marek.templin@tmp-system-service.de](mailto:marek.templin@tmp-system-service.de).
