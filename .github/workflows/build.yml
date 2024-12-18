@@ -26,10 +26,11 @@ jobs:
         pip install pyinstaller
 
     - name: Build EXE
+      shell: bash  # Setzt die Shell auf Bash
       run: |
         pyinstaller --onefile --windowed --icon=assets/logo.ico \
                     --add-data "icons;icons" \
-                    TMP-Networks-Browser-Mini-.py
+                    TMP-Networks-Browser-Mini.py
 
     - name: Upload Build Artifacts
       uses: actions/upload-artifact@v3
