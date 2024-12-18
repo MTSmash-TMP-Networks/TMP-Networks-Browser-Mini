@@ -49,14 +49,6 @@
    pip install -r requirements.txt
    ```
 
-   **Hinweis:** Stellen Sie sicher, dass eine `requirements.txt`-Datei im Projektverzeichnis vorhanden ist, die alle benötigten Pakete auflistet. Beispielinhalt:
-
-   ```
-   PyQt5
-   PyQtWebEngine
-   cryptography
-   ```
-
 4. **Schlüssel für die Verschlüsselung generieren**
 
    Das Projekt verwendet die `cryptography`-Bibliothek zur sicheren Speicherung von Passwörtern. Generieren Sie einen Verschlüsselungsschlüssel:
