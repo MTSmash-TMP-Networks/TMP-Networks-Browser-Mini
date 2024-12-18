@@ -28,7 +28,7 @@
 1. **Repository klonen**
 
    ```bash
-   git clone https://github.com/MTSmash-TMP-Networks/TMP-Networks-Browser-Mini-.git
+   git clone https://github.com/MTSmash-TMP-Networks/TMP-Networks-Browser-Mini.git
    cd TMP-Networks-Browser-Mini-
    ```
 
