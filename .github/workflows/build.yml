@@ -1,0 +1,38 @@
+name: Build Windows EXE
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+jobs:
+  build:
+    runs-on: windows-latest  # Nutzt eine Windows-Maschine
+
+    steps:
+    - name: Checkout Repository
+      uses: actions/checkout@v4  # Aktualisiert auf Version v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v5  # Aktualisiert auf Version v5
+      with:
+        python-version: '3.11'  # Passen Sie die Python-Version nach Bedarf an
+
+    - name: Install Dependencies
+      run: |
+        pip install --upgrade pip
+        pip install -r requirements.txt
+        pip install pyinstaller
+
+    - name: Build EXE
+      run: |
+        pyinstaller --onefile --windowed TMP-Networks-Browser-Mini-.py
+        # Optional: Fügen Sie das Symbol hinzu, falls vorhanden
+        # pyinstaller --onefile --windowed --icon=assets/logo.ico TMP-Networks-Browser-Mini-.py
+
+    - name: Upload Build Artifacts
+      uses: actions/upload-artifact@v3
+      with:
+        name: TMP-Networks-Browser-Mini-Executable
+        path: dist/TMP-Networks-Browser-Mini-.exe
