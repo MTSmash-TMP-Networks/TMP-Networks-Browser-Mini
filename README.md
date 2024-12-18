@@ -1,4 +1,4 @@
-# TMP-Networks-Browser-Mini-
+# TMP-Networks-Browser-Mini
 
 ## Überblick
 
@@ -62,7 +62,7 @@
 5. **Browser starten**
 
    ```bash
-   python TMP-Networks-Browser-Mini-.py
+   python TMP-Networks-Browser-Mini.py
    ```
 
 ## Nutzung
