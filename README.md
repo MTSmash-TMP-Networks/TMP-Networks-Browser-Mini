@@ -94,7 +94,7 @@ Der Workflow befindet sich in `.github/workflows/build.yml` und wird bei jedem P
 
 ### Schritte zum Herunterladen der `.exe`
 
-1. Navigieren Sie zu Ihrem Repository auf GitHub: [TMP-Networks-Browser-Mini-](https://github.com/MTSmash-TMP-Networks/TMP-Networks-Browser-Mini/)
+1. Navigieren Sie zu Ihrem Repository auf GitHub: [TMP-Networks-Browser-Mini](https://github.com/MTSmash-TMP-Networks/TMP-Networks-Browser-Mini/)
 2. Klicken Sie auf den Reiter **"Actions"**.
 3. Wählen Sie den neuesten **Build-Job** aus.
 4. Nach erfolgreichem Abschluss finden Sie die erstellte `.exe` unter den **Artifacts**.
