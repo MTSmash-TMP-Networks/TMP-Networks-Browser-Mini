@@ -27,9 +27,7 @@ jobs:
 
     - name: Build EXE
       run: |
-        pyinstaller --onefile --windowed TMP-Networks-Browser-Mini.py
-        # Optional: Fügen Sie das Symbol hinzu, falls vorhanden
-        # pyinstaller --onefile --windowed --icon=assets/logo.ico TMP-Networks-Browser-Mini.py
+        pyinstaller --onefile --windowed --icon=assets/logo.ico TMP-Networks-Browser-Mini.py
 
     - name: Upload Build Artifacts
       uses: actions/upload-artifact@v3
