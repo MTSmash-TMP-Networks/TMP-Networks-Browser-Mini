@@ -1,4 +1,4 @@
-name: Build Windows EXE
+name: Build Executables
 
 on:
   push:
@@ -7,17 +7,17 @@ on:
   pull_request:
 
 jobs:
-  build:
-    runs-on: windows-latest  # Nutzt eine Windows-Maschine
+  build-windows:
+    runs-on: windows-latest
 
     steps:
     - name: Checkout Repository
-      uses: actions/checkout@v4  # Aktualisiert auf Version v4
+      uses: actions/checkout@v4
 
     - name: Set up Python
-      uses: actions/setup-python@v5  # Aktualisiert auf Version v5
+      uses: actions/setup-python@v5
       with:
-        python-version: '3.11'  # Passen Sie die Python-Version nach Bedarf an
+        python-version: '3.11'
 
     - name: Install Dependencies
       run: |
@@ -26,14 +26,48 @@ jobs:
         pip install pyinstaller
 
     - name: Build EXE
-      shell: bash  # Setzt die Shell auf Bash
+      shell: bash
       run: |
         pyinstaller --onefile --windowed --icon=assets/logo.ico \
                     --add-data "icons;icons" \
                     TMP-Networks-Browser-Mini.py
 
-    - name: Upload Build Artifacts
+    - name: Upload Build Artifact
       uses: actions/upload-artifact@v3
       with:
-        name: TMP-Networks-Browser-Mini-Executable
+        name: TMP-Networks-Browser-Mini-Windows-Executable
         path: dist/TMP-Networks-Browser-Mini.exe
+
+  build-macos:
+    runs-on: macos-latest
+
+    steps:
+    - name: Checkout Repository
+      uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+
+    - name: Install Dependencies
+      run: |
+        pip install --upgrade pip
+        pip install -r requirements.txt
+        pip install py2app
+
+    - name: Convert Icon to .icns
+      run: |
+        # Install png2icns if not available
+        brew install png2icns || echo "png2icns already installed"
+        png2icns assets/logo.icns assets/logo.png
+
+    - name: Build .app with py2app
+      run: |
+        python3 setup.py py2app
+
+    - name: Upload Build Artifact
+      uses: actions/upload-artifact@v3
+      with:
+        name: TMP-Networks-Browser-Mini-macOS-App
+        path: dist/TMP-Networks-Browser-Mini.app
