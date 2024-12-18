@@ -49,17 +49,7 @@
    pip install -r requirements.txt
    ```
 
-4. **Schlüssel für die Verschlüsselung generieren**
-
-   Das Projekt verwendet die `cryptography`-Bibliothek zur sicheren Speicherung von Passwörtern. Generieren Sie einen Verschlüsselungsschlüssel:
-
-   ```bash
-   python keygen.py
-   ```
-
-   Dies erstellt eine `secret.key`-Datei. **Wichtig:** Diese Datei sollte niemals öffentlich zugänglich gemacht werden. Fügen Sie sie zu Ihrer `.gitignore`-Datei hinzu.
-
-5. **Browser starten**
+4. **Browser starten**
 
    ```bash
    python TMP-Networks-Browser-Mini.py
@@ -141,8 +131,8 @@ Dieses Projekt ist lizenziert unter der [MIT License](LICENSE).
 
 ## Sicherheitshinweis
 
-**Wichtig:** Die gespeicherten Passwörter werden verschlüsselt, jedoch sollten Sie sicherstellen, dass die `secret.key`-Datei sicher aufbewahrt wird und nicht in das Repository aufgenommen wird. Fügen Sie `secret.key` zur `.gitignore`-Datei hinzu, um eine versehentliche Veröffentlichung zu verhindern.
+**Wichtig:** Die gespeicherten Passwörter werden gespeichert, jedoch sollten Sie sicherstellen, dass die Passwort-Datei sicher aufbewahrt wird und nicht in das Repository aufgenommen wird. Fügen Sie die Passwort-Datei zur `.gitignore`-Datei hinzu, um eine versehentliche Veröffentlichung zu verhindern.
 
 ## Kontakt
 
-Bei Fragen oder Vorschlägen kontaktieren Sie mich gerne unter marek.templin@tmp-system-service.de.
+Bei Fragen oder Vorschlägen kontaktieren Sie mich gerne unter [marek.templin@tmp-system-service.de](mailto:marek.templin@tmp-system-service.de).
