@@ -29,7 +29,7 @@
 
    ```bash
    git clone https://github.com/MTSmash-TMP-Networks/TMP-Networks-Browser-Mini.git
-   cd TMP-Networks-Browser-Mini-
+   cd TMP-Networks-Browser-Mini
    ```
 
 2. **Virtuelle Umgebung erstellen (optional, aber empfohlen)**
