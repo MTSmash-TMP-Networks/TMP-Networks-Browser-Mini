@@ -37,31 +37,3 @@ jobs:
       with:
         name: TMP-Networks-Browser-Mini-Windows-Executable
         path: dist/TMP-Networks-Browser-Mini.exe
-
-  build-macos:
-    runs-on: macos-latest
-
-    steps:
-    - name: Checkout Repository
-      uses: actions/checkout@v4
-
-    - name: Set up Python
-      uses: actions/setup-python@v5
-      with:
-        python-version: '3.11'
-
-    - name: Install Dependencies
-      run: |
-        pip install --upgrade pip
-        pip install -r requirements.txt
-        pip install py2app
-
-    - name: Build .app with py2app
-      run: |
-        python3 setup.py py2app
-
-    - name: Upload Build Artifact
-      uses: actions/upload-artifact@v3
-      with:
-        name: TMP-Networks-Browser-Mini-macOS-App
-        path: dist/TMP-Networks-Browser-Mini.app
