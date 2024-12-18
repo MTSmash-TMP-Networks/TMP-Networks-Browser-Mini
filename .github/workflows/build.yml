@@ -56,12 +56,6 @@ jobs:
         pip install -r requirements.txt
         pip install py2app
 
-    - name: Convert Icon to .icns
-      run: |
-        # Install png2icns if not available
-        brew install png2icns || echo "png2icns already installed"
-        png2icns assets/logo.icns assets/logo.png
-
     - name: Build .app with py2app
       run: |
         python3 setup.py py2app
