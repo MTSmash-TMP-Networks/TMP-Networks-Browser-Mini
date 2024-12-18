@@ -28,8 +28,8 @@ jobs:
     - name: Build EXE
       run: |
         pyinstaller --onefile --windowed --icon=assets/logo.ico \
-        --add-data "icons;icons" \
-        TMP-Networks-Browser-Mini.py
+                    --add-data "icons;icons" \
+                    TMP-Networks-Browser-Mini.py
 
 
     - name: Upload Build Artifacts
