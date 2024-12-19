@@ -1,5 +1,6 @@
 import json
 import os
+import sys
 from PyQt5.QtWidgets import (
     QApplication, QMainWindow, QVBoxLayout, QLineEdit, QWidget,
     QTabWidget, QToolBar, QAction, QStatusBar, QFileDialog, QMessageBox,
@@ -10,8 +11,14 @@ from PyQt5.QtCore import QUrl, QSize, QObject, pyqtSlot, Qt
 from PyQt5.QtGui import QIcon
 from PyQt5.QtWebChannel import QWebChannel
 
-
 DATA_FILE = "favoriten_und_passwoerter.json"
+
+# Neue Funktion zum Laden von Ressourcen (Icons) im PyInstaller-Paket
+def resource_path(relative_path):
+    """Ermittelt den korrekten Pfad für Ressourcen innerhalb einer PyInstaller OneFile-Exe."""
+    if hasattr(sys, '_MEIPASS'):
+        return os.path.join(sys._MEIPASS, relative_path)
+    return os.path.join(os.path.abspath("."), relative_path)
 
 
 class WebChannelInterface(QObject):
@@ -189,19 +196,20 @@ class Browser(QMainWindow):
         navigation_bar.setIconSize(QSize(16, 16))
         self.addToolBar(navigation_bar)
 
-        back_button = QAction(QIcon('icons/back.png'), "Zurück", self)
+        # Icons jetzt mit resource_path laden
+        back_button = QAction(QIcon(resource_path('icons/back.png')), "Zurück", self)
         back_button.triggered.connect(lambda: self.tabs.currentWidget().back())
         navigation_bar.addAction(back_button)
 
-        forward_button = QAction(QIcon('icons/forward.png'), "Vorwärts", self)
+        forward_button = QAction(QIcon(resource_path('icons/forward.png')), "Vorwärts", self)
         forward_button.triggered.connect(lambda: self.tabs.currentWidget().forward())
         navigation_bar.addAction(forward_button)
 
-        reload_button = QAction(QIcon('icons/reload.png'), "Neu laden", self)
+        reload_button = QAction(QIcon(resource_path('icons/reload.png')), "Neu laden", self)
         reload_button.triggered.connect(lambda: self.tabs.currentWidget().reload())
         navigation_bar.addAction(reload_button)
 
-        home_button = QAction(QIcon('icons/home.png'), "Startseite", self)
+        home_button = QAction(QIcon(resource_path('icons/home.png')), "Startseite", self)
         home_button.triggered.connect(self.navigate_home)
         navigation_bar.addAction(home_button)
 
@@ -209,12 +217,12 @@ class Browser(QMainWindow):
         self.url_bar.returnPressed.connect(self.navigate_to_url)
         navigation_bar.addWidget(self.url_bar)
 
-        new_tab_button = QAction(QIcon('icons/new_tab.png'), "Neuer Tab", self)
+        new_tab_button = QAction(QIcon(resource_path('icons/new_tab.png')), "Neuer Tab", self)
         new_tab_button.triggered.connect(lambda: self.add_new_tab())
         navigation_bar.addAction(new_tab_button)
 
         # Button: Eingabefelder scannen
-        scan_button = QAction(QIcon('icons/search.png'), "Eingabefelder scannen", self)
+        scan_button = QAction(QIcon(resource_path('icons/search.png')), "Eingabefelder scannen", self)
         scan_button.triggered.connect(self.scan_for_login_fields)
         navigation_bar.addAction(scan_button)
 
@@ -250,7 +258,6 @@ class Browser(QMainWindow):
 
         browser.page().profile().downloadRequested.connect(self.on_downloadRequested)
 
-        # Beim Laden der Seite prüfen wir später, ob Credentials vorhanden sind.
         browser.loadFinished.connect(lambda _, b=browser: self.check_credentials(b))
         browser.loadFinished.connect(lambda _, i=self.tabs.count(), browser=browser: self.tabs.setTabText(i, browser.page().title()))
         browser.urlChanged.connect(lambda qurl, browser=browser: self.update_url_bar(qurl, browser))
@@ -384,7 +391,6 @@ class Browser(QMainWindow):
         if not credentials:
             return
 
-        # Erst prüfen, ob Passwortfelder vorhanden sind
         js_code = """
         (function() {
             var inputs = document.getElementsByTagName('input');
@@ -403,10 +409,9 @@ class Browser(QMainWindow):
 
     def handle_check_password_field(self, has_password_field, credentials, browser):
         if not has_password_field:
-            # Keine Passwortfelder vorhanden, also nicht nach Einfügen fragen
+            # Keine Passwortfelder vorhanden
             return
 
-        # Passwortfelder vorhanden, jetzt nachfragen
         reply = QMessageBox.question(
             self,
             "Zugangsdaten verfügbar",
@@ -433,7 +438,6 @@ class Browser(QMainWindow):
             QMessageBox.information(self, "Info", "Zugangsdaten wurden eingefügt.")
 
     def scan_for_login_fields(self):
-        # Diese Funktion liest die aktuellen Eingabefelder aus
         js_code = """
         (function() {
             var inputs = document.getElementsByTagName('input');
