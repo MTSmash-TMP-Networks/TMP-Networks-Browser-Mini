@@ -94,6 +94,7 @@ jobs:
             --add-binary "/Applications/VLC.app/Contents/MacOS/lib/libvlc.dylib:." \
             --add-binary "/Applications/VLC.app/Contents/MacOS/lib/libvlccore.dylib:." \
             --add-data "/Applications/VLC.app/Contents/MacOS/plugins:plugins" \
+            --name TMP-Networks-Browser-Mini \
             TMP-Networks-Browser-Mini.py
 
       - name: List dist Directory
@@ -101,12 +102,11 @@ jobs:
           echo "Inhalt von dist/:"
           ls -la dist/
 
-      - name: Compress .app for Artifact
+      - name: Compress Executable for Artifact
         run: |
-          # Komprimiere die fertige App als ZIP
+          # Komprimiere die fertige ausführbare Datei als ZIP
           cd dist
-          ditto -c -k --sequesterRsrc --keepParent "TMP-Networks-Browser-Mini" \
-                "TMP-Networks-Browser-Mini-macOS.zip"
+          zip TMP-Networks-Browser-Mini-macOS.zip TMP-Networks-Browser-Mini
 
       - name: Upload Build Artifact
         uses: actions/upload-artifact@v3
