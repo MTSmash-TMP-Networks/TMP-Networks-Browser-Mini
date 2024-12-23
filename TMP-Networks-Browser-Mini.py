@@ -1226,63 +1226,51 @@ class Browser(QMainWindow):
         dlg.exec()
 
     # -------------- WHOIS Funktion -------------- #
-def show_whois_info(self):
-    current_url = self.tabs.currentWidget().url().toString()
-    domain = QUrl(current_url).host()
+    def show_whois_info(self):
+        current_url = self.tabs.currentWidget().url().toString()
+        domain = QUrl(current_url).host()
+        
+        if not domain:
+            QMessageBox.warning(self, "Warnung", "Keine gültige Domain gefunden.")
+            return
+        
+        try:
+            # Ermitteln der IP-Adresse
+            ip_address = socket.gethostbyname(domain)
+        except socket.gaierror:
+            QMessageBox.warning(self, "Warnung", f"IP-Adresse für {domain} konnte nicht ermittelt werden.")
+            ip_address = "Nicht verfügbar"
+        
+        try:
+            # WHOIS-Abfrage
+            w = whois.whois(domain)
+            if hasattr(w, 'text') and w.text:
+                whois_info = w.text
+            else:
+                # Manuelle Formatierung der WHOIS-Daten
+                whois_info = ""
+                for key, value in w.items():
+                    if isinstance(value, list):
+                        value = ', '.join([self.convert_datetime(v) for v in value])
+                    else:
+                        value = self.convert_datetime(value)
+                    whois_info += f"{key}: {value}\n"
+        except Exception as e:
+            QMessageBox.warning(self, "Warnung", f"WHOIS-Abfrage fehlgeschlagen: {e}")
+            whois_info = "Keine WHOIS-Informationen verfügbar."
+        
+        # IP-Informationen (hier nur die IP-Adresse)
+        ip_info = f"IP-Adresse: {ip_address}"
+        
+        # Anzeige im Dialog
+        dlg = WhoisDialog(whois_info, ip_info, self)
+        dlg.exec()
 
-    if not domain:
-        QMessageBox.warning(self, "Warnung", "Keine gültige Domain gefunden.")
-        return
-
-    try:
-        # Ermitteln der IP-Adresse
-        ip_address = socket.gethostbyname(domain)
-    except socket.gaierror:
-        QMessageBox.warning(self, "Warnung", f"IP-Adresse für {domain} konnte nicht ermittelt werden.")
-        ip_address = "Nicht verfügbar"
-
-    try:
-        # WHOIS-Abfrage
-        if getattr(sys, 'frozen', False):
-            # Wenn wir in einem gebündelten Bundle sind
-            bundle_dir = sys._MEIPASS
-            public_suffix_path = os.path.join(bundle_dir, 'whois', 'data', 'public_suffix_list.dat')
-        else:
-            # Standardpfad der Bibliothek
-            public_suffix_path = whois.get_public_suffix_list_path()
-
-        # Debugging: Ausgabe des verwendeten Pfads
-        print(f"Pfad zur public_suffix_list.dat: {public_suffix_path}")
-
-        # WHOIS-Abfrage ohne zusätzliche Argumente
-        w = whois.whois(domain)
-
-        # Verarbeite die WHOIS-Daten
-        if hasattr(w, 'text') and w.text:
-            whois_info = w.text
-        else:
-            # Manuelle Formatierung der WHOIS-Daten
-            whois_info = "\n".join(
-                f"{key}: {', '.join(map(str, value)) if isinstance(value, list) else value}"
-                for key, value in w.items()
-                if value
-            )
-    except Exception as e:
-        QMessageBox.warning(self, "Warnung", f"WHOIS-Abfrage fehlgeschlagen: {e}")
-        whois_info = "Keine WHOIS-Informationen verfügbar."
-
-    # IP-Informationen (hier nur die IP-Adresse)
-    ip_info = f"IP-Adresse: {ip_address}"
-
-    # Anzeige im Dialog
-    dlg = WhoisDialog(whois_info, ip_info, self)
-    dlg.exec()
-    
     def convert_datetime(self, value):
         if isinstance(value, datetime):
             return value.strftime('%Y-%m-%d %H:%M:%S')
         return str(value)
-        
+
 if __name__ == "__main__":
     app = QApplication(sys.argv)
     window = Browser()
