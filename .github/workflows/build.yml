@@ -3,10 +3,10 @@ name: Build Executables
 on:
   push:
     branches:
-      - gt6
+      - qt6
   pull_request:
     branches:
-      - gt6
+      - qt6
 
 jobs:
   build-windows:
@@ -21,6 +21,9 @@ jobs:
         with:
           python-version: '3.11'
 
+      - name: Install VLC
+        run: choco install vlc -y
+
       - name: Install Dependencies
         run: |
           pip install --upgrade pip
@@ -28,15 +31,18 @@ jobs:
           pip install pyinstaller
 
       - name: Build EXE
+        # Auf Windows ist standardmäßig PowerShell als Shell eingestellt.
         shell: powershell
         run: |
+          # Im Normalfall wird VLC bei 64-Bit als "C:/Program Files/VideoLAN/VLC" installiert.
+          # Daher kopieren wir genau von dort die benötigten Dateien:
           pyinstaller --onefile --windowed `
             --icon=assets/logo.ico `
             --hidden-import PyQt6.QtWebEngineCore `
             --hidden-import PyQt6.QtWebEngineWidgets `
-            --add-binary "C:/Program Files (x86)/VideoLAN/VLC/libvlc.dll;." `
-            --add-binary "C:/Program Files (x86)/VideoLAN/VLC/libvlccore.dll;." `
-            --add-data "C:/Program Files (x86)/VideoLAN/VLC/plugins;plugins" `
+            --add-binary "C:/Program Files/VideoLAN/VLC/libvlc.dll;." `
+            --add-binary "C:/Program Files/VideoLAN/VLC/libvlccore.dll;." `
+            --add-data  "C:/Program Files/VideoLAN/VLC/plugins;plugins" `
             TMP-Networks-Browser-Mini.py
 
       - name: Upload Build Artifact
