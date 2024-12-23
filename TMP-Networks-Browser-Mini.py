@@ -1243,7 +1243,16 @@ class Browser(QMainWindow):
         
         try:
             # WHOIS-Abfrage
-            w = whois.whois(domain)
+            # Überprüfen, ob wir im gebündelten Bundle sind
+            if getattr(sys, 'frozen', False):
+                # Wenn wir in einem Bundle sind, finde den Pfad zur Daten-Datei
+                bundle_dir = sys._MEIPASS
+                data_path = os.path.join(bundle_dir, 'whois', 'data', 'public_suffix_list.dat')
+            else:
+                # Andernfalls nutze den normalen Pfad
+                data_path = whois.get_public_suffix_list_path()
+            
+            w = whois.whois(domain, public_suffix_list_path=data_path)
             if hasattr(w, 'text') and w.text:
                 whois_info = w.text
             else:
@@ -1265,12 +1274,12 @@ class Browser(QMainWindow):
         # Anzeige im Dialog
         dlg = WhoisDialog(whois_info, ip_info, self)
         dlg.exec()
-
+    
     def convert_datetime(self, value):
         if isinstance(value, datetime):
             return value.strftime('%Y-%m-%d %H:%M:%S')
         return str(value)
-
+        
 if __name__ == "__main__":
     app = QApplication(sys.argv)
     window = Browser()
