@@ -1,0 +1,42 @@
+{
+    "favorites": [],
+    "credentials": {},
+    "history": [
+        {
+            "title": "google.com",
+            "url": "https://www.google.com/"
+        },
+        {
+            "title": "google.com/search?q=wikipedia&sca_esv=706a3250d026367c&source=hp&ei=77hpZ__aJv-P7NYPwb_G0QE&iflsig=AL9hbdgAAAAAZ2nG_8dpeG2b6QH60wKnKR3-jxHuK1Yg&ved=0ahUKEwi_jpqRz76KAxX_B9sEHcGfMRoQ4dUDCBA&uact=5&oq=wikipedia&gs_lp=Egdnd3Mtd2l6Igl3aWtpcGVkaWEyCxAAGIAEGLEDGMkDMgsQABiABBixAxiDATILEAAYgAQYsQMYgwEyDhAAGIAEGJIDGLgEGIoFMgsQABiABBiSAxiKBTIIEAAYgAQYsQMyBRAAGIAEMgUQABiABDIIEAAYgAQYsQMyBRAAGIAESMkoUI4JWJIncAJ4AJABAJgBeqABkgeqAQM4LjK4AQPIAQD4AQGYAgygAs4HqAIKwgIKEAAYAxjqAhiPAcICChAuGAMY6gIYjwHCAg4QABiABBixAxiDARiKBcICDhAuGIAEGLEDGIMBGNQCwgILEC4YgAQY0QMYxwHCAgsQLhiABBixAxiDAcICBRAuGIAEwgIOEC4YgAQYsQMY0QMYxwHCAgsQLhiABBjHARivAcICBxAAGIAEGArCAg4QABiABBixAxiDARjJA5gDCPEFUOx1NF0rvqmSBwQxMC4yoAexRg&sclient=gws-wiz",
+            "url": "https://www.google.com/search?q=wikipedia&sca_esv=706a3250d026367c&source=hp&ei=77hpZ__aJv-P7NYPwb_G0QE&iflsig=AL9hbdgAAAAAZ2nG_8dpeG2b6QH60wKnKR3-jxHuK1Yg&ved=0ahUKEwi_jpqRz76KAxX_B9sEHcGfMRoQ4dUDCBA&uact=5&oq=wikipedia&gs_lp=Egdnd3Mtd2l6Igl3aWtpcGVkaWEyCxAAGIAEGLEDGMkDMgsQABiABBixAxiDATILEAAYgAQYsQMYgwEyDhAAGIAEGJIDGLgEGIoFMgsQABiABBiSAxiKBTIIEAAYgAQYsQMyBRAAGIAEMgUQABiABDIIEAAYgAQYsQMyBRAAGIAESMkoUI4JWJIncAJ4AJABAJgBeqABkgeqAQM4LjK4AQPIAQD4AQGYAgygAs4HqAIKwgIKEAAYAxjqAhiPAcICChAuGAMY6gIYjwHCAg4QABiABBixAxiDARiKBcICDhAuGIAEGLEDGIMBGNQCwgILEC4YgAQY0QMYxwHCAgsQLhiABBixAxiDAcICBRAuGIAEwgIOEC4YgAQYsQMY0QMYxwHCAgsQLhiABBjHARivAcICBxAAGIAEGArCAg4QABiABBixAxiDARjJA5gDCPEFUOx1NF0rvqmSBwQxMC4yoAexRg&sclient=gws-wiz"
+        },
+        {
+            "title": "de.wikipedia.org/wiki/Wikipedia:Hauptseite",
+            "url": "https://de.wikipedia.org/wiki/Wikipedia:Hauptseite"
+        },
+        {
+            "title": "wikipedia - Google Suche",
+            "url": "https://www.google.com/search?q=wikipedia&sca_esv=706a3250d026367c&source=hp&ei=77hpZ__aJv-P7NYPwb_G0QE&iflsig=AL9hbdgAAAAAZ2nG_8dpeG2b6QH60wKnKR3-jxHuK1Yg&ved=0ahUKEwi_jpqRz76KAxX_B9sEHcGfMRoQ4dUDCBA&uact=5&oq=wikipedia&gs_lp=Egdnd3Mtd2l6Igl3aWtpcGVkaWEyCxAAGIAEGLEDGMkDMgsQABiABBixAxiDATILEAAYgAQYsQMYgwEyDhAAGIAEGJIDGLgEGIoFMgsQABiABBiSAxiKBTIIEAAYgAQYsQMyBRAAGIAEMgUQABiABDIIEAAYgAQYsQMyBRAAGIAESMkoUI4JWJIncAJ4AJABAJgBeqABkgeqAQM4LjK4AQPIAQD4AQGYAgygAs4HqAIKwgIKEAAYAxjqAhiPAcICChAuGAMY6gIYjwHCAg4QABiABBixAxiDARiKBcICDhAuGIAEGLEDGIMBGNQCwgILEC4YgAQY0QMYxwHCAgsQLhiABBixAxiDAcICBRAuGIAEwgIOEC4YgAQYsQMY0QMYxwHCAgsQLhiABBjHARivAcICBxAAGIAEGArCAg4QABiABBixAxiDARjJA5gDCPEFUOx1NF0rvqmSBwQxMC4yoAexRg&sclient=gws-wiz"
+        },
+        {
+            "title": "google.com/search?sca_esv=706a3250d026367c&q=wikipedia&udm=7&fbs=AEQNm0A6bwEop21ehxKWq5cj-cHa02QUie7apaStVTrDAEoT1CkRGSL-1wA3X2bR5dRYtRGv3dh0WX48pQ0OijG3Ir_Ily36WNjIM66TUeQQm6v5pCxPr2gtqfjkC7ffv6Tr7pov6Kj4r20q4qdHCSHuZ8l9l_oCqEwoxOcaGtTQ9oNU0Tr95ug&sa=X&ved=2ahUKEwiw3qOlz76KAxXS8rsIHc7nCbwQtKgLegQIHRAB&biw=1200&bih=710&dpr=2",
+            "url": "https://www.google.com/search?sca_esv=706a3250d026367c&q=wikipedia&udm=7&fbs=AEQNm0A6bwEop21ehxKWq5cj-cHa02QUie7apaStVTrDAEoT1CkRGSL-1wA3X2bR5dRYtRGv3dh0WX48pQ0OijG3Ir_Ily36WNjIM66TUeQQm6v5pCxPr2gtqfjkC7ffv6Tr7pov6Kj4r20q4qdHCSHuZ8l9l_oCqEwoxOcaGtTQ9oNU0Tr95ug&sa=X&ved=2ahUKEwiw3qOlz76KAxXS8rsIHc7nCbwQtKgLegQIHRAB&biw=1200&bih=710&dpr=2"
+        },
+        {
+            "title": "google.com/search?sca_esv=706a3250d026367c&q=wikipedia&source=lnms&fbs=AEQNm0A6bwEop21ehxKWq5cj-cHa02QUie7apaStVTrDAEoT1CkRGSL-1wA3X2bR5dRYtRGv3dh0WX48pQ0OijG3Ir_Ily36WNjIM66TUeQQm6v5pCxPr2gtqfjkC7ffv6Tr7pov6Kj4r20q4qdHCSHuZ8l9l_oCqEwoxOcaGtTQ9oNU0Tr95ug&sa=X&ved=2ahUKEwibvvCnz76KAxXphf0HHUh4CQ0Q0pQJegQIDRAB&biw=1200&bih=710&dpr=2",
+            "url": "https://www.google.com/search?sca_esv=706a3250d026367c&q=wikipedia&source=lnms&fbs=AEQNm0A6bwEop21ehxKWq5cj-cHa02QUie7apaStVTrDAEoT1CkRGSL-1wA3X2bR5dRYtRGv3dh0WX48pQ0OijG3Ir_Ily36WNjIM66TUeQQm6v5pCxPr2gtqfjkC7ffv6Tr7pov6Kj4r20q4qdHCSHuZ8l9l_oCqEwoxOcaGtTQ9oNU0Tr95ug&sa=X&ved=2ahUKEwibvvCnz76KAxXphf0HHUh4CQ0Q0pQJegQIDRAB&biw=1200&bih=710&dpr=2"
+        },
+        {
+            "title": "google.com/search?q=alles+nur+eine+große+show&sca_esv=706a3250d026367c&biw=1200&bih=710&ei=KblpZ4qxMs_h7_UP4_HXiQQ&ved=0ahUKEwjK6fmsz76KAxXP8LsIHeP4NUEQ4dUDCBA&uact=5&oq=alles+nur+eine+große+show&gs_lp=Egxnd3Mtd2l6LXNlcnAiGmFsbGVzIG51ciBlaW5lIGdyb8OfZSBzaG93MgUQIRigATIFECEYoAEyBRAhGJ8FMgUQIRifBTIFECEYnwVIw1ZQtwpYo1RwAXgBkAEAmAF7oAGOEqoBBTE0LjEwuAEDyAEA-AEBmAIYoALmEsICChAAGLADGNYEGEfCAg0QABiABBiwAxhDGIoFwgITEC4YgAQYsAMYQxjIAxiKBdgBAcICHBAuGIAEGLADGNEDGEMY1AIYxwEYyAMYigXYAQHCAhEQLhiABBixAxjRAxiDARjHAcICDhAuGIAEGLEDGNEDGMcBwgILEAAYgAQYsQMYgwHCAg4QABiABBixAxiDARiKBcICCBAAGIAEGLEDwgIgEC4YgAQYsQMY0QMYgwEYxwEYlwUY3AQY3gQY4ATYAQLCAgsQLhiABBixAxiDAcICDRAAGIAEGLEDGEMYigXCAgUQABiABMICCxAuGIAEGNEDGMcBwgIdEC4YgAQYsQMY0QMYxwEYlwUY3AQY3gQY4ATYAQLCAhMQLhiABBixAxjRAxhDGMcBGIoFwgIKEAAYgAQYQxiKBcICChAuGIAEGEMYigXCAhAQLhiABBjRAxhDGMcBGIoFwgIFEC4YgATCAiIQLhiABBixAxjRAxhDGMcBGIoFGJcFGNwEGN4EGOAE2AECwgIOEC4YgAQYsQMYgwEY1ALCAhAQLhiABBixAxhDGIMBGIoFwgILEC4YgAQYsQMY1ALCAh8QLhiABBixAxhDGIMBGIoFGJcFGNwEGN4EGN8E2AECwgILEC4YgAQYxwEYrwHCAhQQLhiABBiXBRjcBBjeBBjgBNgBAsICGhAuGIAEGLEDGNQCGJcFGNwEGN4EGOAE2AECwgIGEAAYFhgewgIIEAAYgAQYogTCAgUQABjvBcICBxAhGKABGAqYAwCIBgGQBgy6BgQIARgIugYGCAIQARgUkgcEOC4xNqAH9LgC&sclient=gws-wiz-serp",
+            "url": "https://www.google.com/search?q=alles+nur+eine+große+show&sca_esv=706a3250d026367c&biw=1200&bih=710&ei=KblpZ4qxMs_h7_UP4_HXiQQ&ved=0ahUKEwjK6fmsz76KAxXP8LsIHeP4NUEQ4dUDCBA&uact=5&oq=alles+nur+eine+große+show&gs_lp=Egxnd3Mtd2l6LXNlcnAiGmFsbGVzIG51ciBlaW5lIGdyb8OfZSBzaG93MgUQIRigATIFECEYoAEyBRAhGJ8FMgUQIRifBTIFECEYnwVIw1ZQtwpYo1RwAXgBkAEAmAF7oAGOEqoBBTE0LjEwuAEDyAEA-AEBmAIYoALmEsICChAAGLADGNYEGEfCAg0QABiABBiwAxhDGIoFwgITEC4YgAQYsAMYQxjIAxiKBdgBAcICHBAuGIAEGLADGNEDGEMY1AIYxwEYyAMYigXYAQHCAhEQLhiABBixAxjRAxiDARjHAcICDhAuGIAEGLEDGNEDGMcBwgILEAAYgAQYsQMYgwHCAg4QABiABBixAxiDARiKBcICCBAAGIAEGLEDwgIgEC4YgAQYsQMY0QMYgwEYxwEYlwUY3AQY3gQY4ATYAQLCAgsQLhiABBixAxiDAcICDRAAGIAEGLEDGEMYigXCAgUQABiABMICCxAuGIAEGNEDGMcBwgIdEC4YgAQYsQMY0QMYxwEYlwUY3AQY3gQY4ATYAQLCAhMQLhiABBixAxjRAxhDGMcBGIoFwgIKEAAYgAQYQxiKBcICChAuGIAEGEMYigXCAhAQLhiABBjRAxhDGMcBGIoFwgIFEC4YgATCAiIQLhiABBixAxjRAxhDGMcBGIoFGJcFGNwEGN4EGOAE2AECwgIOEC4YgAQYsQMYgwEY1ALCAhAQLhiABBixAxhDGIMBGIoFwgILEC4YgAQYsQMY1ALCAh8QLhiABBixAxhDGIMBGIoFGJcFGNwEGN4EGN8E2AECwgILEC4YgAQYxwEYrwHCAhQQLhiABBiXBRjcBBjeBBjgBNgBAsICGhAuGIAEGLEDGNQCGJcFGNwEGN4EGOAE2AECwgIGEAAYFhgewgIIEAAYgAQYogTCAgUQABjvBcICBxAhGKABGAqYAwCIBgGQBgy6BgQIARgIugYGCAIQARgUkgcEOC4xNqAH9LgC&sclient=gws-wiz-serp"
+        },
+        {
+            "title": "google.com/search?q=alles+nur+eine+große+show&sca_esv=706a3250d026367c&ei=NrlpZ72jEKCF9u8Pg7Pg8As&start=10&sa=N&sstk=ATObxK4y9_abiNJwoVt1Oe7Gcqi9MPDngoTU8T5k41KywrGOEaSO9VDrXmdH_H9LuL-7nBzur-4LJRlVwWMmzEAI3O4YisdTm_bB9Q&ved=2ahUKEwi9lvGyz76KAxWggv0HHYMZGL4Q8tMDegQIChAE&biw=1200&bih=710&dpr=2",
+            "url": "https://www.google.com/search?q=alles+nur+eine+große+show&sca_esv=706a3250d026367c&ei=NrlpZ72jEKCF9u8Pg7Pg8As&start=10&sa=N&sstk=ATObxK4y9_abiNJwoVt1Oe7Gcqi9MPDngoTU8T5k41KywrGOEaSO9VDrXmdH_H9LuL-7nBzur-4LJRlVwWMmzEAI3O4YisdTm_bB9Q&ved=2ahUKEwi9lvGyz76KAxWggv0HHYMZGL4Q8tMDegQIChAE&biw=1200&bih=710&dpr=2"
+        },
+        {
+            "title": "google.com/search?q=alles+nur+eine+große+show&sca_esv=706a3250d026367c&ei=QrlpZ_OSCO6G9u8Pu7at8Qo&start=20&sa=N&sstk=ATObxK7mDL8RorOpt7TBGQCdv222ZY5KaBHMmyVKxzm1OyAEBLCOJL7n_eVh5P1uNj_wgHW-kjJz1USeIXsUNJnA02f3qcbLV6MDVek0nmPNYy2ohfERtuCcfDG2Yt7ap2Dl&ved=2ahUKEwjzu8W4z76KAxVug_0HHTtbK644ChDy0wN6BAgKEAc&biw=1200&bih=710&dpr=2",
+            "url": "https://www.google.com/search?q=alles+nur+eine+große+show&sca_esv=706a3250d026367c&ei=QrlpZ_OSCO6G9u8Pu7at8Qo&start=20&sa=N&sstk=ATObxK7mDL8RorOpt7TBGQCdv222ZY5KaBHMmyVKxzm1OyAEBLCOJL7n_eVh5P1uNj_wgHW-kjJz1USeIXsUNJnA02f3qcbLV6MDVek0nmPNYy2ohfERtuCcfDG2Yt7ap2Dl&ved=2ahUKEwjzu8W4z76KAxVug_0HHTtbK644ChDy0wN6BAgKEAc&biw=1200&bih=710&dpr=2"
+        }
+    ]
+}
