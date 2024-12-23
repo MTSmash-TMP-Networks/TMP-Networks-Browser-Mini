@@ -3,7 +3,7 @@ Build Executables
 on:
   push:
     branches:
-      - main
+      - QT6
   pull_request:
 
 jobs:
