@@ -1,4 +1,4 @@
-name: Build Executables
+Build Executables
 
 on:
   push:
@@ -11,33 +11,29 @@ jobs:
     runs-on: windows-latest
 
     steps:
-      - name: Checkout Repository
-        uses: actions/checkout@v4
+    - name: Checkout Repository
+      uses: actions/checkout@v4
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
 
-      - name: Install Dependencies
-        run: |
-          pip install --upgrade pip
-          pip install -r requirements.txt
-          pip install pyinstaller
+    - name: Install Dependencies
+      run: |
+        pip install --upgrade pip
+        pip install -r requirements.txt
+        pip install pyinstaller
 
-      - name: Build EXE
-        # PowerShell ist unter Windows Standard; für Bash kannst du shell: bash verwenden.
-        shell: powershell
-        run: |
-          pyinstaller --onefile --windowed `
-                      --icon=assets/logo.ico `
-                      --add-data "icons;icons" `
-                      --hidden-import PyQt6.QtWebEngineCore `
-                      --hidden-import PyQt6.QtWebEngineWidgets `
-                      TMP-Networks-Browser-Mini.py
+    - name: Build EXE
+      shell: bash
+      run: |
+        pyinstaller --onefile --windowed --icon=assets/logo.ico \
+                    --add-data "icons;icons" \
+                    TMP-Networks-Browser-Mini.py
 
-      - name: Upload Build Artifact
-        uses: actions/upload-artifact@v3
-        with:
-          name: TMP-Networks-Browser-Mini-Windows-Executable
-          path: dist/TMP-Networks-Browser-Mini.exe
+    - name: Upload Build Artifact
+      uses: actions/upload-artifact@v3
+      with:
+        name: TMP-Networks-Browser-Mini-Windows-Executable
+        path: dist/TMP-Networks-Browser-Mini.exe
