@@ -45,17 +45,11 @@ jobs:
             --add-data "C:/Program Files/VideoLAN/VLC/plugins;plugins" `
             TMP-Networks-Browser-Mini.py
 
-      - name: Check dist Directory
-        run: |
-          echo "Inhalt des dist-Verzeichnisses:"
-          dir dist
-
       - name: Upload Build Artifact
         uses: actions/upload-artifact@v3
         with:
           name: TMP-Networks-Browser-Mini-Windows-Executable
           path: dist/TMP-Networks-Browser-Mini.exe
-          if-no-files-found: warn
 
   # ------------------------------
   # 2) BUILD ON macOS
