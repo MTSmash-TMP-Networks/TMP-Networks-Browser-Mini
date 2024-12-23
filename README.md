@@ -1,4 +1,4 @@
-# TMP-Networks-Browser-Mini
+# TMP-Networks-Browser-Mini QT6
 
 ## Überblick
 
