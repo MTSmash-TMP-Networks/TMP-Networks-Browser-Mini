@@ -86,29 +86,29 @@ jobs:
         id: find_public_suffix
         run: |
           PUBLIC_SUFFIX_PATH=$(python -c "import whois, os; print(os.path.join(os.path.dirname(whois.__file__), 'data', 'public_suffix_list.dat'))")
-          echo "::set-output name=path::$PUBLIC_SUFFIX_PATH"
+          echo "PUBLIC_SUFFIX_PATH=$PUBLIC_SUFFIX_PATH" >> $GITHUB_ENV
 
       - name: Build macOS App
-  run: |
-    # Entferne vorherige Builds
-    rm -rf build dist
-    
-    # Überprüfen, ob die Datei existiert
-    if [ ! -f "$PUBLIC_SUFFIX_PATH" ]; then
-      echo "Error: public_suffix_list.dat not found at $PUBLIC_SUFFIX_PATH"
-      exit 1
-    fi
-    
-    # Baue die App mit PyInstaller und füge die Daten-Datei hinzu
-    pyinstaller --windowed \
-      --icon=assets/logo.icns \
-      --hidden-import PyQt6.QtWebEngineCore \
-      --hidden-import PyQt6.QtWebEngineWidgets \
-      --add-binary "/Applications/VLC.app/Contents/MacOS/lib/libvlc.dylib:." \
-      --add-binary "/Applications/VLC.app/Contents/MacOS/lib/libvlccore.dylib:." \
-      --add-data "/Applications/VLC.app/Contents/MacOS/plugins:plugins" \
-      --add-data "$PUBLIC_SUFFIX_PATH:whois/data" \
-      TMP-Networks-Browser-Mini.py
+        run: |
+          # Entferne vorherige Builds
+          rm -rf build dist
+
+          # Überprüfen, ob die Datei existiert
+          if [ ! -f "$PUBLIC_SUFFIX_PATH" ]; then
+            echo "Error: public_suffix_list.dat not found at $PUBLIC_SUFFIX_PATH"
+            exit 1
+          fi
+
+          # Baue die App mit PyInstaller und füge die Daten-Datei hinzu
+          pyinstaller --windowed \
+            --icon=assets/logo.icns \
+            --hidden-import PyQt6.QtWebEngineCore \
+            --hidden-import PyQt6.QtWebEngineWidgets \
+            --add-binary "/Applications/VLC.app/Contents/MacOS/lib/libvlc.dylib:." \
+            --add-binary "/Applications/VLC.app/Contents/MacOS/lib/libvlccore.dylib:." \
+            --add-data "/Applications/VLC.app/Contents/MacOS/plugins:plugins" \
+            --add-data "$PUBLIC_SUFFIX_PATH:whois/data" \
+            TMP-Networks-Browser-Mini.py
 
       - name: List dist Directory
         run: |
@@ -118,8 +118,8 @@ jobs:
       - name: Check Write Permissions
         run: |
           echo "Überprüfe Schreibrechte im Application Support-Verzeichnis:"
-          python -c "import appdirs, os; dirs = appdirs.AppDirs('TMPNetworksBrowserMini', 'DeinName'); print(dirs.user_data_dir)"
-          python -c "import appdirs, os; dirs = appdirs.AppDirs('TMPNetworksBrowserMini', 'DeinName'); os.makedirs(dirs.user_data_dir, exist_ok=True); open(os.path.join(dirs.user_data_dir, 'test_write.txt'), 'w').close()"
+          python -c "import appdirs, os; dirs = appdirs.AppDirs('TMPNetworksBrowserMini', 'MTSmash'); print(dirs.user_data_dir)"
+          python -c "import appdirs, os; dirs = appdirs.AppDirs('TMPNetworksBrowserMini', 'MTSmash'); os.makedirs(dirs.user_data_dir, exist_ok=True); open(os.path.join(dirs.user_data_dir, 'test_write.txt'), 'w').close()"
 
       - name: Compress .app for Artifact
         run: |
