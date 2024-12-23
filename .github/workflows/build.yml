@@ -58,9 +58,20 @@ jobs:
 
       - name: Find public_suffix_list.dat
         id: find_public_suffix
+        shell: powershell
         run: |
-          PUBLIC_SUFFIX_PATH=$(python -c "import whois, os; print(os.path.join(os.path.dirname(whois.__file__), 'data', 'public_suffix_list.dat'))")
-          echo "PUBLIC_SUFFIX_PATH=$PUBLIC_SUFFIX_PATH" >> $GITHUB_ENV
+          $PUBLIC_SUFFIX_PATH = python -c "import whois, os; print(os.path.join(os.path.dirname(whois.__file__), 'data', 'public_suffix_list.dat'))"
+          Write-Output "PUBLIC_SUFFIX_PATH=$PUBLIC_SUFFIX_PATH" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+      - name: Verify public_suffix_list.dat Exists
+        shell: powershell
+        run: |
+          if (!(Test-Path $env:PUBLIC_SUFFIX_PATH)) {
+            Write-Error "public_suffix_list.dat nicht gefunden unter $env:PUBLIC_SUFFIX_PATH"
+            exit 1
+          } else {
+            Write-Output "public_suffix_list.dat gefunden."
+          }
 
       - name: Display Python Version
         run: python --version
@@ -69,18 +80,10 @@ jobs:
         run: pip list
 
       - name: Display Environment Variables
+        shell: powershell
         run: |
           Write-Output "Umgebungsvariablen:"
           Get-ChildItem Env:
-
-      - name: Verify public_suffix_list.dat Exists
-        run: |
-          if (!(Test-Path $env:PUBLIC_SUFFIX_PATH)) {
-            Write-Error "public_suffix_list.dat nicht gefunden unter $env:PUBLIC_SUFFIX_PATH"
-            exit 1
-          } else {
-            Write-Output "public_suffix_list.dat gefunden."
-          }
 
       - name: Build EXE
         shell: powershell
