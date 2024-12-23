@@ -31,7 +31,7 @@ jobs:
         run: |
           pip install --upgrade pip
           pip install -r requirements.txt
-          pip install pyinstaller
+          pip install pyinstaller appdirs
 
       - name: Build EXE
         shell: powershell
@@ -51,71 +51,71 @@ jobs:
           name: TMP-Networks-Browser-Mini-Windows-Executable
           path: dist/TMP-Networks-Browser-Mini.exe
 
-# ------------------------------
-# 2) BUILD ON macOS
-# ------------------------------
-build-macos:
-  runs-on: macos-latest
+  # ------------------------------
+  # 2) BUILD ON macOS
+  # ------------------------------
+  build-macos:
+    runs-on: macos-latest
 
-  steps:
-    - name: Checkout Repository
-      uses: actions/checkout@v4
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
 
-    - name: Verify Icon File Exists
-      run: |
-        if [ ! -f assets/logo.icns ]; then
-          echo "Error: assets/logo.icns not found!"
-          exit 1
-        fi
+      - name: Verify Icon File Exists
+        run: |
+          if [ ! -f assets/logo.icns ]; then
+            echo "Error: assets/logo.icns not found!"
+            exit 1
+          fi
 
-    - name: Set up Python
-      uses: actions/setup-python@v5
-      with:
-        python-version: '3.11'
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
 
-    - name: Install VLC
-      run: brew install --cask vlc
+      - name: Install VLC
+        run: brew install --cask vlc
 
-    - name: Install Dependencies
-      run: |
-        pip install --upgrade pip
-        pip install -r requirements.txt
-        pip install pyinstaller appdirs
+      - name: Install Dependencies
+        run: |
+          pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pyinstaller appdirs
 
-    - name: Build macOS App
-      run: |
-        # Entferne vorherige Builds
-        rm -rf build dist
-        # Baue die App mit PyInstaller und entferne die --add-data für die JSON-Datei
-        pyinstaller --windowed \
-          --icon=assets/logo.icns \
-          --hidden-import PyQt6.QtWebEngineCore \
-          --hidden-import PyQt6.QtWebEngineWidgets \
-          --add-binary "/Applications/VLC.app/Contents/MacOS/lib/libvlc.dylib:." \
-          --add-binary "/Applications/VLC.app/Contents/MacOS/lib/libvlccore.dylib:." \
-          --add-data "/Applications/VLC.app/Contents/MacOS/plugins:plugins" \
-          TMP-Networks-Browser-Mini.py
+      - name: Build macOS App
+        run: |
+          # Entferne vorherige Builds
+          rm -rf build dist
+          # Baue die App mit PyInstaller ohne --add-data für die JSON-Datei
+          pyinstaller --windowed \
+            --icon=assets/logo.icns \
+            --hidden-import PyQt6.QtWebEngineCore \
+            --hidden-import PyQt6.QtWebEngineWidgets \
+            --add-binary "/Applications/VLC.app/Contents/MacOS/lib/libvlc.dylib:." \
+            --add-binary "/Applications/VLC.app/Contents/MacOS/lib/libvlccore.dylib:." \
+            --add-data "/Applications/VLC.app/Contents/MacOS/plugins:plugins" \
+            TMP-Networks-Browser-Mini.py
 
-    - name: List dist Directory
-      run: |
-        echo "Inhalt von dist/:"
-        ls -la dist/
+      - name: List dist Directory
+        run: |
+          echo "Inhalt von dist/:"
+          ls -la dist/
 
-    - name: Check Write Permissions
-      run: |
-        echo "Überprüfe Schreibrechte im Application Support-Verzeichnis:"
-        python -c "import appdirs, os; dirs = appdirs.AppDirs('TMPNetworksBrowserMini', 'DeinName'); print(dirs.user_data_dir)"
-        python -c "import appdirs, os; dirs = appdirs.AppDirs('TMPNetworksBrowserMini', 'DeinName'); os.makedirs(dirs.user_data_dir, exist_ok=True); open(os.path.join(dirs.user_data_dir, 'test_write.txt'), 'w').close()"
+      - name: Check Write Permissions
+        run: |
+          echo "Überprüfe Schreibrechte im Application Support-Verzeichnis:"
+          python -c "import appdirs, os; dirs = appdirs.AppDirs('TMPNetworksBrowserMini', 'DeinName'); print(dirs.user_data_dir)"
+          python -c "import appdirs, os; dirs = appdirs.AppDirs('TMPNetworksBrowserMini', 'DeinName'); os.makedirs(dirs.user_data_dir, exist_ok=True); open(os.path.join(dirs.user_data_dir, 'test_write.txt'), 'w').close()"
 
-    - name: Compress .app for Artifact
-      run: |
-        # Komprimiere die fertige App als ZIP
-        cd dist
-        ditto -c -k --sequesterRsrc --keepParent "TMP-Networks-Browser-Mini.app" \
-              "TMP-Networks-Browser-Mini-macOS.zip"
+      - name: Compress .app for Artifact
+        run: |
+          # Komprimiere die fertige App als ZIP
+          cd dist
+          ditto -c -k --sequesterRsrc --keepParent "TMP-Networks-Browser-Mini.app" \
+                "TMP-Networks-Browser-Mini-macOS.zip"
 
-    - name: Upload Build Artifact
-      uses: actions/upload-artifact@v3
-      with:
-        name: TMP-Networks-Browser-Mini-macOS
-        path: dist/TMP-Networks-Browser-Mini-macOS.zip
+      - name: Upload Build Artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: TMP-Networks-Browser-Mini-macOS
+          path: dist/TMP-Networks-Browser-Mini-macOS.zip
