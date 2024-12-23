@@ -1,8 +1,8 @@
-# TMP-Networks-Browser-Mini QT6
+# TMP-Networks-Browser-Mini
 
 ## Überblick
 
-**TMP-Networks-Browser-Mini** ist ein leichter Webbrowser, entwickelt mit Python und PyQt5. Der Browser bietet grundlegende Funktionen wie Tab-Unterstützung, Favoritenverwaltung und ein sicheres Passwortmanagement. Mit der Integration von GitHub Actions wird automatisch eine ausführbare `.exe`-Datei erstellt, die einfach verteilt werden kann.
+**TMP-Networks-Browser-Mini** ist ein leichter Webbrowser, entwickelt mit Python und PyQt6. Der Browser bietet grundlegende Funktionen wie Tab-Unterstützung, Favoritenverwaltung und ein sicheres Passwortmanagement. Mit der Integration von GitHub Actions wird automatisch eine ausführbare `.exe`-Datei erstellt, die einfach verteilt werden kann.
 
 ## Features
 
@@ -46,7 +46,18 @@
 3. **Abhängigkeiten installieren**
 
    ```bash
+   pip install --upgrade pip
    pip install -r requirements.txt
+   ```
+
+   **Hinweis:** Stelle sicher, dass Deine `requirements.txt` **PyQt6** anstelle von **PyQt5** enthält:
+
+   ```text
+   PyQt6>=6.0.0
+   PyQt6-WebEngine>=6.0.0
+   requests
+   vlc
+   appdirs
    ```
 
 4. **Browser starten**
@@ -86,44 +97,44 @@ Beim Starten eines Downloads wird dieser direkt im Browser verwaltet. Fortschrit
 
 ## Erstellung einer ausführbaren `.exe`-Datei
 
-Das Projekt verwendet **GitHub Actions**, um automatisch eine ausführbare `.exe`-Datei zu erstellen, die Sie direkt von GitHub herunterladen können.
+Das Projekt verwendet **GitHub Actions**, um automatisch eine ausführbare `.exe`-Datei zu erstellen, die Du direkt von GitHub herunterladen kannst.
 
 ### GitHub Actions Workflow
 
-Der Workflow befindet sich in `.github/workflows/build.yml` und wird bei jedem Push zum `main`-Branch ausgelöst. Er verwendet `PyInstaller`, um die `.exe` zu erstellen und als Artifact hochzuladen.
+Der Workflow befindet sich in `.github/workflows/build.yml` und wird bei jedem Push zum `qt6`-Branch ausgelöst. Er verwendet `PyInstaller`, um die `.exe` zu erstellen und als Artifact hochzuladen.
 
 ### Schritte zum Herunterladen der `.exe`
 
-1. Navigieren Sie zu Ihrem Repository auf GitHub: [TMP-Networks-Browser-Mini](https://github.com/MTSmash-TMP-Networks/TMP-Networks-Browser-Mini/)
-2. Klicken Sie auf den Reiter **"Actions"**.
-3. Wählen Sie den neuesten **Build-Job** aus.
-4. Nach erfolgreichem Abschluss finden Sie die erstellte `.exe` unter den **Artifacts**.
-5. Laden Sie die `.exe` herunter und führen Sie sie aus.
+1. Navigiere zu Deinem Repository auf GitHub: [TMP-Networks-Browser-Mini](https://github.com/MTSmash-TMP-Networks/TMP-Networks-Browser-Mini/)
+2. Klicke auf den Reiter **"Actions"**.
+3. Wähle den neuesten **Build-Job** aus.
+4. Nach erfolgreichem Abschluss findest Du die erstellte `.exe` unter den **Artifacts**.
+5. Lade die `.exe` herunter und führe sie aus.
 
 ## Beitrag leisten
 
-Beiträge sind willkommen! Folgen Sie diesen Schritten, um zum Projekt beizutragen:
+Beiträge sind willkommen! Folge diesen Schritten, um zum Projekt beizutragen:
 
-1. Forken Sie das Repository.
-2. Erstellen Sie einen neuen Branch für Ihre Änderungen:
+1. Forke das Repository.
+2. Erstelle einen neuen Branch für Deine Änderungen:
 
    ```bash
    git checkout -b feature/NeuesFeature
    ```
 
-3. Nehmen Sie Ihre Änderungen vor und committen Sie sie:
+3. Nimm Deine Änderungen vor und committe sie:
 
    ```bash
    git commit -m "Add neues Feature"
    ```
 
-4. Pushen Sie den Branch zu Ihrem Fork:
+4. Pushe den Branch zu Deinem Fork:
 
    ```bash
    git push origin feature/NeuesFeature
    ```
 
-5. Öffnen Sie einen Pull Request in diesem Repository.
+5. Öffne einen Pull Request in diesem Repository.
 
 ## Lizenz
 
@@ -131,4 +142,4 @@ Dieses Projekt ist lizenziert unter der [MIT License](LICENSE).
 
 ## Kontakt
 
-Bei Fragen oder Vorschlägen kontaktieren Sie mich gerne unter [marek.templin@tmp-system-service.de](mailto:marek.templin@tmp-system-service.de).
+Bei Fragen oder Vorschlägen kontaktiere mich gerne unter [marek.templin@tmp-system-service.de](mailto:marek.templin@tmp-system-service.de).
