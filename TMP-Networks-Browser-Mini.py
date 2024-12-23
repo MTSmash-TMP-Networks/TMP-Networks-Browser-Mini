@@ -1153,8 +1153,8 @@ class Browser(QMainWindow):
                 
                 if (bestSrc) {
                     chosenSources.push(bestSrc);
-                } else:
-                    # Fallback: currentSrc oder videos[i].src
+                } else {
+                    // Fallback: currentSrc oder videos[i].src
                     var fallback = videos[i].currentSrc || videos[i].src;
                     if (fallback) {
                         chosenSources.push(fallback);
