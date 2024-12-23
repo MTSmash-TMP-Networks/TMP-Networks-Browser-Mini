@@ -43,7 +43,6 @@ jobs:
             --add-binary "C:/Program Files/VideoLAN/VLC/libvlc.dll;." `
             --add-binary "C:/Program Files/VideoLAN/VLC/libvlccore.dll;." `
             --add-data "C:/Program Files/VideoLAN/VLC/plugins;plugins" `
-            --add-data "data/favoriten_und_passwoerter.json;data" `
             TMP-Networks-Browser-Mini.py
 
       - name: Upload Build Artifact
@@ -81,13 +80,13 @@ jobs:
         run: |
           pip install --upgrade pip
           pip install -r requirements.txt
-          pip install pyinstaller
+          pip install pyinstaller appdirs
 
       - name: Build macOS App
         run: |
           # Entferne vorherige Builds
           rm -rf build dist
-          # Baue die App mit PyInstaller und füge die JSON-Datei hinzu
+          # Baue die App mit PyInstaller und füge die JSON-Datei hinzu (falls benötigt)
           pyinstaller --windowed \
             --icon=assets/logo.icns \
             --hidden-import PyQt6.QtWebEngineCore \
@@ -95,7 +94,6 @@ jobs:
             --add-binary "/Applications/VLC.app/Contents/MacOS/lib/libvlc.dylib:." \
             --add-binary "/Applications/VLC.app/Contents/MacOS/lib/libvlccore.dylib:." \
             --add-data "/Applications/VLC.app/Contents/MacOS/plugins:plugins" \
-            --add-data "data/favoriten_und_passwoerter.json:data" \
             TMP-Networks-Browser-Mini.py
 
       - name: List dist Directory
