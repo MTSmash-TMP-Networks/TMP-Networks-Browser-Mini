@@ -90,7 +90,6 @@ jobs:
         run: |
           pyinstaller --onefile --windowed `
             --icon=assets/logo.ico `
-            --version-file=version.rc `
             --hidden-import PyQt6.QtWebEngineCore `
             --hidden-import PyQt6.QtWebEngineWidgets `
             --add-binary "C:/Program Files/VideoLAN/VLC/libvlc.dll;." `
@@ -98,41 +97,10 @@ jobs:
             --add-data "C:/Program Files/VideoLAN/VLC/plugins;plugins" `
             --add-data "$env:PUBLIC_SUFFIX_PATH;whois/data" `
             TMP-Networks-Browser-Mini.py
-        
+          
           # Überprüfe den Inhalt von dist/
           Write-Output "Inhalt von dist/:"
           Get-ChildItem -Recurse dist/
-
-      - name: Install SignTool
-        shell: powershell
-        run: |
-          # Installiere das Windows SDK, das signtool.exe enthält
-          choco install windows-sdk-10.0 -y
-          # Stelle sicher, dass signtool im PATH ist
-          $env:PATH += ";C:\Program Files (x86)\Windows Kits\10\bin\x64"
-
-      - name: Decode and Save Signing Certificate
-        shell: powershell
-        env:
-          SIGNING_CERT: ${{ secrets.SIGNING_CERT }}
-          SIGNING_CERT_PASSWORD: ${{ secrets.SIGNING_CERT_PASSWORD }}
-        run: |
-          # Dekodiere das Base64-zertifikat und speichere es als .pfx Datei
-          $decoded = [System.Convert]::FromBase64String($env:SIGNING_CERT)
-          $certPath = "$env:USERPROFILE\signing_cert.pfx"
-          [System.IO.File]::WriteAllBytes($certPath, $decoded)
-          Write-Output "Zertifikat gespeichert unter $certPath"
-
-      - name: Sign the EXE
-        shell: powershell
-        env:
-          SIGNING_CERT_PASSWORD: ${{ secrets.SIGNING_CERT_PASSWORD }}
-        run: |
-          $certPath = "$env:USERPROFILE\signing_cert.pfx"
-          $exePath = "dist\TMP-Networks-Browser-Mini.exe"
-          signtool sign /f $certPath /p $env:SIGNING_CERT_PASSWORD /tr http://timestamp.digicert.com /td sha256 /fd sha256 $exePath
-          # Überprüfe die Signatur
-          signtool verify /pa /v $exePath
 
       - name: Upload Build Artifact
         uses: actions/upload-artifact@v3
@@ -155,7 +123,7 @@ jobs:
       - name: Verify Icon File Exists
         run: |
           if [ ! -f assets/logo.icns ]; then
-            echo "Error: assets/logo.icns nicht gefunden!"
+            echo "Error: assets/logo.icns not found!"
             exit 1
           fi
 
@@ -193,7 +161,7 @@ jobs:
           # Baue die App mit PyInstaller und füge die Daten-Datei hinzu
           pyinstaller --windowed \
             --icon=assets/logo.icns \
-            --version-file=version.rc \  # Optional, falls du auch Versionierung für macOS einbetten möchtest
+            --version-file=version.rc \
             --hidden-import PyQt6.QtWebEngineCore \
             --hidden-import PyQt6.QtWebEngineWidgets \
             --add-binary "/Applications/VLC.app/Contents/MacOS/lib/libvlc.dylib:." \
