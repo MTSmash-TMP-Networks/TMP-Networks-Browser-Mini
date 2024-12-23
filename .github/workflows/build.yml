@@ -56,6 +56,12 @@ jobs:
           pip install -r requirements.txt
           pip install --upgrade pyinstaller appdirs
 
+      - name: Find public_suffix_list.dat
+        id: find_public_suffix
+        run: |
+          PUBLIC_SUFFIX_PATH=$(python -c "import whois, os; print(os.path.join(os.path.dirname(whois.__file__), 'data', 'public_suffix_list.dat'))")
+          echo "PUBLIC_SUFFIX_PATH=$PUBLIC_SUFFIX_PATH" >> $GITHUB_ENV
+
       - name: Display Python Version
         run: python --version
 
@@ -67,6 +73,15 @@ jobs:
           Write-Output "Umgebungsvariablen:"
           Get-ChildItem Env:
 
+      - name: Verify public_suffix_list.dat Exists
+        run: |
+          if (!(Test-Path $env:PUBLIC_SUFFIX_PATH)) {
+            Write-Error "public_suffix_list.dat nicht gefunden unter $env:PUBLIC_SUFFIX_PATH"
+            exit 1
+          } else {
+            Write-Output "public_suffix_list.dat gefunden."
+          }
+
       - name: Build EXE
         shell: powershell
         run: |
@@ -77,6 +92,7 @@ jobs:
             --add-binary "C:/Program Files/VideoLAN/VLC/libvlc.dll;." `
             --add-binary "C:/Program Files/VideoLAN/VLC/libvlccore.dll;." `
             --add-data "C:/Program Files/VideoLAN/VLC/plugins;plugins" `
+            --add-data "$env:PUBLIC_SUFFIX_PATH;whois/data" `
             TMP-Networks-Browser-Mini.py
           
           # Überprüfe den Inhalt von dist/
@@ -135,7 +151,7 @@ jobs:
 
           # Überprüfen, ob die Datei existiert
           if [ ! -f "$PUBLIC_SUFFIX_PATH" ]; then
-            echo "Error: public_suffix_list.dat not found at $PUBLIC_SUFFIX_PATH"
+            echo "Error: public_suffix_list.dat nicht gefunden unter $PUBLIC_SUFFIX_PATH"
             exit 1
           fi
 
