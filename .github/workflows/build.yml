@@ -42,7 +42,7 @@ jobs:
             --hidden-import PyQt6.QtWebEngineWidgets `
             --add-binary "C:/Program Files/VideoLAN/VLC/libvlc.dll;." `
             --add-binary "C:/Program Files/VideoLAN/VLC/libvlccore.dll;." `
-            --add-data  "C:/Program Files/VideoLAN/VLC/plugins;plugins" `
+            --add-data "C:/Program Files/VideoLAN/VLC/plugins;plugins" `
             TMP-Networks-Browser-Mini.py
 
       - name: Upload Build Artifact
@@ -80,14 +80,21 @@ jobs:
         run: |
           pip install --upgrade pip
           pip install -r requirements.txt
-          pip install py2app
+          pip install pyinstaller
 
       - name: Build macOS App
         run: |
           # Entferne vorherige Builds
           rm -rf build dist
-          # Baue das .app-Bundle mit py2app
-          python setup.py py2app --verbose
+          # Baue das .app-Bundle mit PyInstaller
+          pyinstaller --onefile --windowed \
+            --icon=assets/logo.icns \
+            --hidden-import PyQt6.QtWebEngineCore \
+            --hidden-import PyQt6.QtWebEngineWidgets \
+            --add-binary "/Applications/VLC.app/Contents/MacOS/lib/libvlc.dylib:." \
+            --add-binary "/Applications/VLC.app/Contents/MacOS/lib/libvlccore.dylib:." \
+            --add-data "/Applications/VLC.app/Contents/MacOS/plugins:plugins" \
+            TMP-Networks-Browser-Mini.py
 
       - name: List dist Directory
         run: |
@@ -98,15 +105,8 @@ jobs:
         run: |
           # Komprimiere die fertige App als ZIP
           cd dist
-          ditto -c -k --sequesterRsrc --keepParent "TMP-Networks-Browser-Mini.app" \
+          ditto -c -k --sequesterRsrc --keepParent "TMP-Networks-Browser-Mini" \
                 "TMP-Networks-Browser-Mini-macOS.zip"
-        shell: /bin/bash -e {0}
-        env:
-          pythonLocation: /Users/runner/hostedtoolcache/Python/3.11.9/arm64
-          PKG_CONFIG_PATH: /Users/runner/hostedtoolcache/Python/3.11.9/arm64/lib/pkgconfig
-          Python_ROOT_DIR: /Users/runner/hostedtoolcache/Python/3.11.9/arm64
-          Python2_ROOT_DIR: /Users/runner/hostedtoolcache/Python/3.11.9/arm64
-          Python3_ROOT_DIR: /Users/runner/hostedtoolcache/Python/3.11.9/arm64
 
       - name: Upload Build Artifact
         uses: actions/upload-artifact@v3
