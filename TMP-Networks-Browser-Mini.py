@@ -7,6 +7,9 @@ import os
 import re
 import requests
 import vlc
+import socket
+import whois
+from datetime import datetime
 
 from urllib.parse import urljoin
 
@@ -15,7 +18,7 @@ from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QVBoxLayout, QLineEdit, QWidget,
     QTabWidget, QToolBar, QStatusBar, QFileDialog, QMessageBox,
     QDialog, QPushButton, QLabel, QMenu, QListWidget, QListWidgetItem, QHBoxLayout,
-    QSizePolicy, QFrame, QSlider
+    QSizePolicy, QFrame, QSlider, QTextEdit, QScrollArea
 )
 from PyQt6.QtGui import QAction, QFont
 from PyQt6.QtCore import QUrl, QSize, QObject, pyqtSlot, Qt, QTimer
@@ -143,7 +146,6 @@ class VLCPlayerDialog(QDialog):
         self.media_player.play()
 
         # Widget für Video
-        self.show()
         self.set_video_widget()
 
     def set_video_widget(self):
@@ -511,6 +513,117 @@ class FavoritesManagerDialog(QDialog):
             item = QListWidgetItem(item_text)
             self.list_widget.addItem(item)
 
+class WhoisDialog(QDialog):
+    def __init__(self, domain_info, ip_info, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("WHOIS Informationen")
+        self.resize(600, 400)
+        
+        layout = QVBoxLayout()
+        
+        # Scrollbereich für WHOIS-Daten
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        content = QWidget()
+        scroll_layout = QVBoxLayout(content)
+        
+        # WHOIS Informationen
+        whois_label = QLabel("WHOIS Daten:")
+        whois_text = QTextEdit()
+        whois_text.setReadOnly(True)
+        whois_text.setText(domain_info)
+        
+        # IP Informationen
+        ip_label = QLabel("IP Informationen:")
+        ip_text = QTextEdit()
+        ip_text.setReadOnly(True)
+        ip_text.setText(ip_info)
+        
+        scroll_layout.addWidget(whois_label)
+        scroll_layout.addWidget(whois_text)
+        scroll_layout.addWidget(ip_label)
+        scroll_layout.addWidget(ip_text)
+        scroll.setWidget(content)
+        
+        layout.addWidget(scroll)
+        
+        # Schließen-Button
+        close_btn = QPushButton("Schließen")
+        close_btn.clicked.connect(self.accept)
+        layout.addWidget(close_btn)
+        
+        self.setLayout(layout)
+
+class HistoryDialog(QDialog):
+    """
+    Einfache Dialogklasse, um die Chronik anzuzeigen.
+    """
+    def __init__(self, parent=None, history_list=None):
+        super().__init__(parent)
+        self.setWindowTitle("Chronik anzeigen")
+        self.resize(400, 300)
+        self.history = history_list if history_list else []
+
+        layout = QVBoxLayout()
+
+        self.list_widget = QListWidget()
+        for entry in self.history:
+            title = entry.get("title", "Ohne Titel")
+            url = entry.get("url", "")
+            item_text = f"{title}\n{url}"
+            item = QListWidgetItem(item_text)
+            self.list_widget.addItem(item)
+        layout.addWidget(self.list_widget)
+
+        # Navigation beim Doppelklick
+        self.list_widget.itemDoubleClicked.connect(self.navigate_from_history)
+
+        close_btn = QPushButton("Schließen")
+        close_btn.clicked.connect(self.accept)
+        layout.addWidget(close_btn)
+
+        self.setLayout(layout)
+
+    def navigate_from_history(self, item):
+        text = item.text()
+        lines = text.split("\n")
+        if len(lines) >= 2:
+            url = lines[-1]
+            main_window = self.parent()
+            if hasattr(main_window, "navigate_to_url_string"):
+                main_window.navigate_to_url_string(url)
+            self.accept()
+
+class EditFavoriteDialog(QDialog):
+    """
+    Dialog zum Bearbeiten eines einzelnen Favoriten (Titel/URL).
+    """
+    def __init__(self, parent=None, title="", url=""):
+        super().__init__(parent)
+        self.setWindowTitle("Favorit bearbeiten")
+        layout = QVBoxLayout()
+
+        self.title_edit = QLineEdit()
+        self.title_edit.setPlaceholderText("Titel")
+        self.title_edit.setText(title)
+        layout.addWidget(QLabel("Titel:"))
+        layout.addWidget(self.title_edit)
+
+        self.url_edit = QLineEdit()
+        self.url_edit.setPlaceholderText("URL")
+        self.url_edit.setText(url)
+        layout.addWidget(QLabel("URL:"))
+        layout.addWidget(self.url_edit)
+
+        save_btn = QPushButton("Speichern")
+        save_btn.clicked.connect(self.accept)
+        layout.addWidget(save_btn)
+
+        self.setLayout(layout)
+
+    def get_values(self):
+        return self.title_edit.text(), self.url_edit.text()
+
 class Browser(QMainWindow):
     def __init__(self):
         super().__init__()
@@ -625,6 +738,13 @@ class Browser(QMainWindow):
         video_scan_button.triggered.connect(self.scan_and_play_videos)
         navigation_bar.addAction(video_scan_button)
         
+        # Hinzufügen des WHOIS-Buttons
+        whois_button = QAction("ℹ️", self)  # Sie können ein passendes Icon wählen
+        whois_button.setToolTip("WHOIS Informationen anzeigen")
+        whois_button.setFont(emoji_font)
+        whois_button.triggered.connect(self.show_whois_info)
+        navigation_bar.addAction(whois_button)
+
         self.status = QStatusBar()
         self.setStatusBar(self.status)
 
@@ -693,10 +813,25 @@ class Browser(QMainWindow):
 
     def save_data(self):
         try:
+            # Stellen Sie sicher, dass alle datetime-Objekte in Strings umgewandelt werden
+            serializable_data = self.make_serializable(self.data)
             with open(DATA_FILE, 'w', encoding='utf-8') as f:
-                json.dump(self.data, f, indent=4, ensure_ascii=False)
+                json.dump(serializable_data, f, indent=4, ensure_ascii=False)
         except Exception as e:
             QMessageBox.critical(self, "Fehler", f"Beim Speichern der Daten ist ein Fehler aufgetreten:\n{e}")
+
+    def make_serializable(self, obj):
+        """
+        Rekursive Funktion zur Umwandlung von datetime-Objekten in Strings.
+        """
+        if isinstance(obj, dict):
+            return {k: self.make_serializable(v) for k, v in obj.items()}
+        elif isinstance(obj, list):
+            return [self.make_serializable(item) for item in obj]
+        elif isinstance(obj, datetime):
+            return obj.strftime('%Y-%m-%d %H:%M:%S')
+        else:
+            return obj
 
     def add_to_history(self, title, url):
         if not title:
@@ -1018,8 +1153,8 @@ class Browser(QMainWindow):
                 
                 if (bestSrc) {
                     chosenSources.push(bestSrc);
-                } else {
-                    // Fallback: currentSrc oder videos[i].src
+                } else:
+                    # Fallback: currentSrc oder videos[i].src
                     var fallback = videos[i].currentSrc || videos[i].src;
                     if (fallback) {
                         chosenSources.push(fallback);
@@ -1089,6 +1224,52 @@ class Browser(QMainWindow):
     def play_video_in_vlc(self, video_url):
         dlg = VLCPlayerDialog(video_url, self)
         dlg.exec()
+
+    # -------------- WHOIS Funktion -------------- #
+    def show_whois_info(self):
+        current_url = self.tabs.currentWidget().url().toString()
+        domain = QUrl(current_url).host()
+        
+        if not domain:
+            QMessageBox.warning(self, "Warnung", "Keine gültige Domain gefunden.")
+            return
+        
+        try:
+            # Ermitteln der IP-Adresse
+            ip_address = socket.gethostbyname(domain)
+        except socket.gaierror:
+            QMessageBox.warning(self, "Warnung", f"IP-Adresse für {domain} konnte nicht ermittelt werden.")
+            ip_address = "Nicht verfügbar"
+        
+        try:
+            # WHOIS-Abfrage
+            w = whois.whois(domain)
+            if hasattr(w, 'text') and w.text:
+                whois_info = w.text
+            else:
+                # Manuelle Formatierung der WHOIS-Daten
+                whois_info = ""
+                for key, value in w.items():
+                    if isinstance(value, list):
+                        value = ', '.join([self.convert_datetime(v) for v in value])
+                    else:
+                        value = self.convert_datetime(value)
+                    whois_info += f"{key}: {value}\n"
+        except Exception as e:
+            QMessageBox.warning(self, "Warnung", f"WHOIS-Abfrage fehlgeschlagen: {e}")
+            whois_info = "Keine WHOIS-Informationen verfügbar."
+        
+        # IP-Informationen (hier nur die IP-Adresse)
+        ip_info = f"IP-Adresse: {ip_address}"
+        
+        # Anzeige im Dialog
+        dlg = WhoisDialog(whois_info, ip_info, self)
+        dlg.exec()
+
+    def convert_datetime(self, value):
+        if isinstance(value, datetime):
+            return value.strftime('%Y-%m-%d %H:%M:%S')
+        return str(value)
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
