@@ -61,6 +61,13 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
+      - name: Verify Icon File Exists
+        run: |
+          if [ ! -f assets/logo.icns ]; then
+            echo "Error: assets/logo.icns not found!"
+            exit 1
+          fi
+
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
@@ -82,12 +89,24 @@ jobs:
           # Baue das .app-Bundle mit py2app
           python setup.py py2app --verbose
 
+      - name: List dist Directory
+        run: |
+          echo "Inhalt von dist/:"
+          ls -la dist/
+
       - name: Compress .app for Artifact
         run: |
           # Komprimiere die fertige App als ZIP
           cd dist
           ditto -c -k --sequesterRsrc --keepParent "TMP-Networks-Browser-Mini.app" \
                 "TMP-Networks-Browser-Mini-macOS.zip"
+        shell: /bin/bash -e {0}
+        env:
+          pythonLocation: /Users/runner/hostedtoolcache/Python/3.11.9/arm64
+          PKG_CONFIG_PATH: /Users/runner/hostedtoolcache/Python/3.11.9/arm64/lib/pkgconfig
+          Python_ROOT_DIR: /Users/runner/hostedtoolcache/Python/3.11.9/arm64
+          Python2_ROOT_DIR: /Users/runner/hostedtoolcache/Python/3.11.9/arm64
+          Python3_ROOT_DIR: /Users/runner/hostedtoolcache/Python/3.11.9/arm64
 
       - name: Upload Build Artifact
         uses: actions/upload-artifact@v3
