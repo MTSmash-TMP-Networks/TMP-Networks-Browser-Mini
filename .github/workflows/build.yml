@@ -3,10 +3,10 @@ name: Build Executables
 on:
   push:
     branches:
-      - main
+      - gt6
   pull_request:
     branches:
-      - main
+      - gt6
 
 jobs:
   build-windows:
