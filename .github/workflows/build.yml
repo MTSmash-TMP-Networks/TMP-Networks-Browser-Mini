@@ -51,7 +51,7 @@ jobs:
           name: TMP-Networks-Browser-Mini-Windows-Executable
           path: dist/TMP-Networks-Browser-Mini.exe
 
-  # ------------------------------
+# ------------------------------
 # 2) BUILD ON macOS
 # ------------------------------
 build-macos:
