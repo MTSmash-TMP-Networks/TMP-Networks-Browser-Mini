@@ -36,13 +36,14 @@ jobs:
       - name: Build EXE
         shell: powershell
         run: |
-          pyinstaller --onefile --windowed `
+          pyinstaller --windowed `
             --icon=assets/logo.ico `
             --hidden-import PyQt6.QtWebEngineCore `
             --hidden-import PyQt6.QtWebEngineWidgets `
             --add-binary "C:/Program Files/VideoLAN/VLC/libvlc.dll;." `
             --add-binary "C:/Program Files/VideoLAN/VLC/libvlccore.dll;." `
             --add-data "C:/Program Files/VideoLAN/VLC/plugins;plugins" `
+            --add-data "data/favoriten_und_passwoerter.json;data" `
             TMP-Networks-Browser-Mini.py
 
       - name: Upload Build Artifact
@@ -86,15 +87,15 @@ jobs:
         run: |
           # Entferne vorherige Builds
           rm -rf build dist
-          # Baue das .app-Bundle mit PyInstaller
-          pyinstaller --onefile --windowed \
+          # Baue die App mit PyInstaller und füge die JSON-Datei hinzu
+          pyinstaller --windowed \
             --icon=assets/logo.icns \
             --hidden-import PyQt6.QtWebEngineCore \
             --hidden-import PyQt6.QtWebEngineWidgets \
             --add-binary "/Applications/VLC.app/Contents/MacOS/lib/libvlc.dylib:." \
             --add-binary "/Applications/VLC.app/Contents/MacOS/lib/libvlccore.dylib:." \
             --add-data "/Applications/VLC.app/Contents/MacOS/plugins:plugins" \
-            --name TMP-Networks-Browser-Mini \
+            --add-data "data/favoriten_und_passwoerter.json:data" \
             TMP-Networks-Browser-Mini.py
 
       - name: List dist Directory
@@ -102,11 +103,12 @@ jobs:
           echo "Inhalt von dist/:"
           ls -la dist/
 
-      - name: Compress Executable for Artifact
+      - name: Compress .app for Artifact
         run: |
-          # Komprimiere die fertige ausführbare Datei als ZIP
+          # Komprimiere die fertige App als ZIP
           cd dist
-          zip TMP-Networks-Browser-Mini-macOS.zip TMP-Networks-Browser-Mini
+          ditto -c -k --sequesterRsrc --keepParent "TMP-Networks-Browser-Mini.app" \
+                "TMP-Networks-Browser-Mini-macOS.zip"
 
       - name: Upload Build Artifact
         uses: actions/upload-artifact@v3
