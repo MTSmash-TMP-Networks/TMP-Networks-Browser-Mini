@@ -27,16 +27,50 @@ jobs:
       - name: Install VLC
         run: choco install vlc -y
 
+      - name: Verify VLC Installation Path
+        run: |
+          if (Test-Path "C:\Program Files\VideoLAN\VLC\libvlc.dll") {
+            Write-Output "libvlc.dll gefunden."
+          } else {
+            Write-Error "libvlc.dll nicht gefunden."
+            exit 1
+          }
+
+          if (Test-Path "C:\Program Files\VideoLAN\VLC\libvlccore.dll") {
+            Write-Output "libvlccore.dll gefunden."
+          } else {
+            Write-Error "libvlccore.dll nicht gefunden."
+            exit 1
+          }
+
+          if (Test-Path "C:\Program Files\VideoLAN\VLC\plugins") {
+            Write-Output "VLC Plugins gefunden."
+          } else {
+            Write-Error "VLC Plugins nicht gefunden."
+            exit 1
+          }
+
       - name: Install Dependencies
         run: |
           pip install --upgrade pip
           pip install -r requirements.txt
-          pip install pyinstaller appdirs
+          pip install --upgrade pyinstaller appdirs
+
+      - name: Display Python Version
+        run: python --version
+
+      - name: List Installed Packages
+        run: pip list
+
+      - name: Display Environment Variables
+        run: |
+          Write-Output "Umgebungsvariablen:"
+          Get-ChildItem Env:
 
       - name: Build EXE
         shell: powershell
         run: |
-          pyinstaller --windowed `
+          pyinstaller --onefile --windowed `
             --icon=assets/logo.ico `
             --hidden-import PyQt6.QtWebEngineCore `
             --hidden-import PyQt6.QtWebEngineWidgets `
@@ -44,12 +78,18 @@ jobs:
             --add-binary "C:/Program Files/VideoLAN/VLC/libvlccore.dll;." `
             --add-data "C:/Program Files/VideoLAN/VLC/plugins;plugins" `
             TMP-Networks-Browser-Mini.py
+          
+          # Überprüfe den Inhalt von dist/
+          Write-Output "Inhalt von dist/:"
+          Get-ChildItem -Recurse dist/
 
       - name: Upload Build Artifact
         uses: actions/upload-artifact@v3
         with:
           name: TMP-Networks-Browser-Mini-Windows-Executable
           path: dist/TMP-Networks-Browser-Mini.exe
+          if-no-files-found: warn
+          include-hidden-files: false
 
   # ------------------------------
   # 2) BUILD ON macOS
@@ -80,7 +120,7 @@ jobs:
         run: |
           pip install --upgrade pip
           pip install -r requirements.txt
-          pip install pyinstaller appdirs
+          pip install --upgrade pyinstaller appdirs
 
       - name: Find public_suffix_list.dat
         id: find_public_suffix
