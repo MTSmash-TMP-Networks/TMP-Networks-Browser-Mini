@@ -22,7 +22,21 @@ from PyQt6.QtCore import QUrl, QSize, QObject, pyqtSlot, Qt, QTimer
 from PyQt6.QtWebEngineWidgets import QWebEngineView
 from PyQt6.QtWebChannel import QWebChannel
 
-DATA_FILE = "favoriten_und_passwoerter.json"
+# AppDirs für plattformübergreifende Pfadverwaltung
+from appdirs import AppDirs
+
+# Initialisiere AppDirs
+dirs = AppDirs("TMPNetworksBrowserMini", "DeinName")
+
+# Bestimme den Pfad zur JSON-Datei im Application Support-Verzeichnis
+json_dir = dirs.user_data_dir
+json_path = os.path.join(json_dir, "favoriten_und_passwoerter.json")
+
+# Stelle sicher, dass das Verzeichnis existiert
+os.makedirs(json_dir, exist_ok=True)
+
+# Setze DATA_FILE auf den neuen Pfad
+DATA_FILE = json_path
 
 def get_emoji_font():
     """ 
@@ -320,6 +334,13 @@ class CredentialsManagerDialog(QDialog):
             self.list_widget.takeItem(self.list_widget.row(selected_item))
             QMessageBox.information(self, "Erfolg", f"Zugangsdaten für {domain} gelöscht.")
 
+    def refresh_list(self):
+        self.list_widget.clear()
+        for domain, creds in sorted(self.credentials.items()):
+            item_text = domain
+            item = QListWidgetItem(item_text)
+            self.list_widget.addItem(item)
+
 class HistoryDialog(QDialog):
     """
     Einfache Dialogklasse, um die Chronik anzuzeigen.
@@ -441,12 +462,20 @@ class FavoritesManagerDialog(QDialog):
         edit_dlg = EditFavoriteDialog(self, old_title, old_url)
         if edit_dlg.exec() == QDialog.DialogCode.Accepted:
             new_title, new_url = edit_dlg.get_values()
-            for fav in self.favorites:
-                if fav["title"] == old_title and fav["url"] == old_url:
-                    fav["title"] = new_title
-                    fav["url"] = new_url
-                    break
-            self.refresh_list()
+            if new_title and new_url:
+                for fav in self.favorites:
+                    if fav["title"] == old_title and fav["url"] == old_url:
+                        fav["title"] = new_title
+                        fav["url"] = new_url
+                        break
+                self.refresh_list()
+                QMessageBox.information(self, "Erfolg", f"Favorit '{new_title}' bearbeitet.")
+            else:
+                QMessageBox.warning(
+                    self,
+                    "Warnung",
+                    "Titel und URL dürfen nicht leer sein."
+                )
 
     def delete_favorite(self):
         selected_item = self.list_widget.currentItem()
@@ -473,6 +502,7 @@ class FavoritesManagerDialog(QDialog):
                 if not (f["title"] == fav_title and f["url"] == fav_url)
             ]
             self.refresh_list()
+            QMessageBox.information(self, "Erfolg", f"Favorit '{fav_title}' gelöscht.")
 
     def refresh_list(self):
         self.list_widget.clear()
@@ -757,9 +787,10 @@ class Browser(QMainWindow):
 
     def update_favorites_menu(self):
         actions = self.fav_menu.actions()
-        # Ab Index 3 entfernen (0=Favorit hinzufügen, 1=Separator, 2=Favoriten verwalten)
-        for action in actions[3:]:
-            self.fav_menu.removeAction(action)
+        # Ab Index 2 entfernen (0=Favorit hinzufügen, 1=Separator)
+        while len(actions) > 2:
+            self.fav_menu.removeAction(actions[-1])
+            actions = self.fav_menu.actions()
 
         for fav in sorted(self.data["favorites"], key=lambda x: x["title"]):
             action = QAction(fav["title"], self)
@@ -945,7 +976,7 @@ class Browser(QMainWindow):
         1) Scannt die aktuelle Seite nach <video>-Elementen.
         2) Für jedes <source> werten wir das 'label' oder die URL aus
            - Bei .m3u8 parsen wir das Manifest, um die höchste Auflösung zu finden.
-           - Bei .mp4 oder Ähnlichem suchen wir per Regex nach "(\\d+)p" etc.
+           - Bei .mp4 oder Ähnlichem suchen wir per Regex nach "(\d+)p" etc.
         3) Wählen pro <video> die (vermeintlich) beste URL aus.
         4) Bieten dem Nutzer an, das Video in VLC zu starten.
         """
