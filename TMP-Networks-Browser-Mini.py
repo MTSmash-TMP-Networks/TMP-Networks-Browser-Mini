@@ -594,7 +594,7 @@ class Browser(QMainWindow):
         video_scan_button.setFont(emoji_font)
         video_scan_button.triggered.connect(self.scan_and_play_videos)
         navigation_bar.addAction(video_scan_button)
-
+        
         self.status = QStatusBar()
         self.setStatusBar(self.status)
 
