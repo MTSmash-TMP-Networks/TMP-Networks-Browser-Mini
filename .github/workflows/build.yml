@@ -26,14 +26,16 @@ jobs:
           pip install pyinstaller
 
       - name: Build EXE
-        # PowerShell ist unter Windows Standard; für Bash kannst du shell: bash verwenden.
         shell: powershell
         run: |
           pyinstaller --onefile --windowed `
-                      --icon=assets/logo.ico `
-                      --hidden-import PyQt6.QtWebEngineCore `
-                      --hidden-import PyQt6.QtWebEngineWidgets `
-                      TMP-Networks-Browser-Mini.py
+            --icon=assets/logo.ico `
+            --hidden-import PyQt6.QtWebEngineCore `
+            --hidden-import PyQt6.QtWebEngineWidgets `
+            --add-binary "C:/Program Files (x86)/VideoLAN/VLC/libvlc.dll;." `
+            --add-binary "C:/Program Files (x86)/VideoLAN/VLC/libvlccore.dll;." `
+            --add-data "C:/Program Files (x86)/VideoLAN/VLC/plugins;plugins" `
+            TMP-Networks-Browser-Mini.py
 
       - name: Upload Build Artifact
         uses: actions/upload-artifact@v3
