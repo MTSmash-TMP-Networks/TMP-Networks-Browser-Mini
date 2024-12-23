@@ -9,6 +9,9 @@ on:
       - qt6
 
 jobs:
+  # ------------------------------
+  # 1) BUILD ON WINDOWS
+  # ------------------------------
   build-windows:
     runs-on: windows-latest
 
@@ -31,11 +34,8 @@ jobs:
           pip install pyinstaller
 
       - name: Build EXE
-        # Auf Windows ist standardmäßig PowerShell als Shell eingestellt.
         shell: powershell
         run: |
-          # Im Normalfall wird VLC bei 64-Bit als "C:/Program Files/VideoLAN/VLC" installiert.
-          # Daher kopieren wir genau von dort die benötigten Dateien:
           pyinstaller --onefile --windowed `
             --icon=assets/logo.ico `
             --hidden-import PyQt6.QtWebEngineCore `
@@ -50,3 +50,47 @@ jobs:
         with:
           name: TMP-Networks-Browser-Mini-Windows-Executable
           path: dist/TMP-Networks-Browser-Mini.exe
+
+  # ------------------------------
+  # 2) BUILD ON macOS
+  # ------------------------------
+  build-macos:
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install VLC
+        run: brew install --cask vlc
+
+      - name: Install Dependencies
+        run: |
+          pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install py2app
+
+      - name: Build macOS App
+        run: |
+          # Entferne vorherige Builds
+          rm -rf build dist
+          # Baue das .app-Bundle mit py2app
+          python setup.py py2app --verbose
+
+      - name: Compress .app for Artifact
+        run: |
+          # Komprimiere die fertige App als ZIP
+          cd dist
+          ditto -c -k --sequesterRsrc --keepParent "TMP-Networks-Browser-Mini.app" \
+                "TMP-Networks-Browser-Mini-macOS.zip"
+
+      - name: Upload Build Artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: TMP-Networks-Browser-Mini-macOS
+          path: dist/TMP-Networks-Browser-Mini-macOS.zip
