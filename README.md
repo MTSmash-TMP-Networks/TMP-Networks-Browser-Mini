@@ -1,5 +1,8 @@
 # TMP-Networks-Browser-Mini
 
+<img width="1194" alt="grafik" src="https://github.com/user-attachments/assets/5eaf3395-4aed-4e52-8776-1b0fdf380e49" />
+
+
 ## Überblick
 
 **TMP-Networks-Browser-Mini** ist ein leichter Webbrowser, entwickelt mit Python und PyQt6. Der Browser bietet grundlegende Funktionen wie Tab-Unterstützung, Favoritenverwaltung und ein sicheres Passwortmanagement. Mit der Integration von GitHub Actions wird automatisch eine ausführbare `.exe`-Datei erstellt, die einfach verteilt werden kann.
