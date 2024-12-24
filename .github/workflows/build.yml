@@ -295,7 +295,6 @@ jobs:
         run: |
           pyinstaller --onefile \
             --windowed \
-            --icon=assets/logo.png \
             --hidden-import PyQt6.QtWebEngineCore \
             --hidden-import PyQt6.QtWebEngineWidgets \
             --add-binary "$LIBVLC_PATH:." \
