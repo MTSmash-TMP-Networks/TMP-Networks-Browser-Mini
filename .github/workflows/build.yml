@@ -293,7 +293,7 @@ jobs:
 
       - name: Build Executable
         run: |
-          pyinstaller --onefile \
+          pyinstaller --onefile --static-libgcc --static-libstdc++ \
             --windowed \
             --icon=assets/logo.png \
             --hidden-import PyQt6.QtWebEngineCore \
