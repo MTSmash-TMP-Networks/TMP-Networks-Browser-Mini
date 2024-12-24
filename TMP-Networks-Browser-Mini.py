@@ -152,7 +152,7 @@ class VLCPlayerDialog(QDialog):
         if sys.platform.startswith('win'):
             self.media_player.set_hwnd(self.videoframe.winId())
         elif sys.platform.startswith('linux'):
-            self.media_player.set_xwindow(self.videoframe.winId())
+            self.media_player.set_xwindow(int(self.videoframe.winId()))
         elif sys.platform.startswith('darwin'):
             self.media_player.set_nsobject(int(self.videoframe.winId()))
 
