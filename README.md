@@ -61,6 +61,7 @@
    requests
    vlc
    appdirs
+   whois
    ```
 
 4. **Browser starten**
