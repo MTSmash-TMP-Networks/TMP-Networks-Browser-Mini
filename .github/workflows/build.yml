@@ -97,7 +97,7 @@ jobs:
             --add-data "C:/Program Files/VideoLAN/VLC/plugins;plugins" `
             --add-data "$env:PUBLIC_SUFFIX_PATH;whois/data" `
             TMP-Networks-Browser-Mini.py
-        
+          
           # Überprüfe den Inhalt von dist/
           Write-Output "Inhalt von dist/:"
           Get-ChildItem -Recurse dist/
