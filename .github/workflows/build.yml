@@ -195,27 +195,24 @@ jobs:
           if-no-files-found: warn
 
   # ------------------------------
-  # BUILD ON LINUX WITH DOCKER
+  # 3) BUILD ON LINUX
   # ------------------------------
   build-linux:
     runs-on: ubuntu-latest
-    container:
-      image: ubuntu:20.04
 
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
       - name: Install Dependencies
         run: |
-          apt-get update && apt-get install -y \
-            python3.11 python3.11-distutils python3-pip \
-            build-essential pkg-config libvlc-dev vlc \
-            curl wget
-
-          # Install PyInstaller
-          python3.11 -m pip install --upgrade pip
-          python3.11 -m pip install pyinstaller appdirs
+          sudo apt-get update
+          sudo apt-get install -y vlc libvlc-dev build-essential pkg-config
 
       - name: Verify VLC Installation Path
         run: |
@@ -235,14 +232,18 @@ jobs:
             exit 1
           fi
 
+          # Bestimme den korrekten Pfad zu den VLC-Plugins
           PLUGINS_PATH=$(dirname "$LIBVLC_PATH")/vlc/plugins
           if [ -d "$PLUGINS_PATH" ]; then
             echo "VLC Plugins gefunden unter $PLUGINS_PATH."
           else
+            # Fallback-Pfade prüfen
             if [ -d "/usr/lib/vlc/plugins" ]; then
               PLUGINS_PATH="/usr/lib/vlc/plugins"
+              echo "VLC Plugins gefunden unter $PLUGINS_PATH."
             elif [ -d "/usr/lib/x86_64-linux-gnu/vlc/plugins" ]; then
               PLUGINS_PATH="/usr/lib/x86_64-linux-gnu/vlc/plugins"
+              echo "VLC Plugins gefunden unter $PLUGINS_PATH."
             else
               echo "VLC Plugins nicht gefunden unter den erwarteten Verzeichnissen."
               exit 1
@@ -253,10 +254,16 @@ jobs:
           echo "LIBVLCCORE_PATH=$LIBVLCCORE_PATH" >> $GITHUB_ENV
           echo "PLUGINS_PATH=$PLUGINS_PATH" >> $GITHUB_ENV
 
+      - name: Install Python Dependencies
+        run: |
+          pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install --upgrade pyinstaller appdirs
+
       - name: Find public_suffix_list.dat
         id: find_public_suffix
         run: |
-          PUBLIC_SUFFIX_PATH=$(python3.11 -c "import whois, os; print(os.path.join(os.path.dirname(whois.__file__), 'data', 'public_suffix_list.dat'))")
+          PUBLIC_SUFFIX_PATH=$(python -c "import whois, os; print(os.path.join(os.path.dirname(whois.__file__), 'data', 'public_suffix_list.dat'))")
           echo "PUBLIC_SUFFIX_PATH=$PUBLIC_SUFFIX_PATH" >> $GITHUB_ENV
 
       - name: Verify public_suffix_list.dat Exists
@@ -268,13 +275,24 @@ jobs:
             echo "public_suffix_list.dat gefunden."
           fi
 
+      - name: List Repository Files
+        run: |
+          echo "Listing all files in the repository:"
+          ls -R
+
+      - name: Display Python Version
+        run: python --version
+
+      - name: List Installed Packages
+        run: pip list
+
+      - name: Display Environment Variables
+        run: |
+          echo "Umgebungsvariablen:"
+          printenv
+
       - name: Build Executable
         run: |
-          # Setze Umgebungsvariablen für statische Verknüpfung
-          export CFLAGS="-static-libgcc -static-libstdc++"
-          export LDFLAGS="-static-libgcc -static-libstdc++"
-
-          # Führe PyInstaller aus
           pyinstaller --onefile \
             --windowed \
             --icon=assets/logo.png \
@@ -286,6 +304,7 @@ jobs:
             --add-data "$PUBLIC_SUFFIX_PATH:whois/data" \
             TMP-Networks-Browser-Mini.py
 
+          # Überprüfe den Inhalt von dist/
           echo "Inhalt von dist/:"
           ls -R dist/
 
