@@ -17,10 +17,10 @@ jobs:
 
     steps:
       - name: Checkout Repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v3
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v4
         with:
           python-version: '3.11'
 
@@ -28,6 +28,7 @@ jobs:
         run: choco install vlc -y
 
       - name: Verify VLC Installation Path
+        shell: powershell
         run: |
           if (Test-Path "C:\Program Files\VideoLAN\VLC\libvlc.dll") {
             Write-Output "libvlc.dll gefunden."
@@ -88,16 +89,16 @@ jobs:
       - name: Build EXE
         shell: powershell
         run: |
-          pyinstaller --onefile --windowed ^
-            --icon=assets/logo.ico ^
-            --hidden-import PyQt6.QtWebEngineCore ^
-            --hidden-import PyQt6.QtWebEngineWidgets ^
-            --add-binary "C:/Program Files/VideoLAN/VLC/libvlc.dll;." ^
-            --add-binary "C:/Program Files/VideoLAN/VLC/libvlccore.dll;." ^
-            --add-data "C:/Program Files/VideoLAN/VLC/plugins;plugins" ^
-            --add-data "$env:PUBLIC_SUFFIX_PATH;whois/data" ^
+          pyinstaller --onefile --windowed `
+            --icon=assets/logo.ico `
+            --hidden-import PyQt6.QtWebEngineCore `
+            --hidden-import PyQt6.QtWebEngineWidgets `
+            --add-binary "C:\Program Files\VideoLAN\VLC\libvlc.dll;." `
+            --add-binary "C:\Program Files\VideoLAN\VLC\libvlccore.dll;." `
+            --add-data "C:\Program Files\VideoLAN\VLC\plugins;plugins" `
+            --add-data "$env:PUBLIC_SUFFIX_PATH;whois\data" `
             TMP-Networks-Browser-Mini.py
-          
+
           # Überprüfe den Inhalt von dist/
           Write-Output "Inhalt von dist/:"
           Get-ChildItem -Recurse dist/
@@ -106,7 +107,7 @@ jobs:
         uses: actions/upload-artifact@v3
         with:
           name: TMP-Networks-Browser-Mini-Windows-Executable
-          path: dist/TMP-Networks-Browser-Mini.exe
+          path: dist\TMP-Networks-Browser-Mini.exe
           if-no-files-found: warn
           include-hidden-files: false
 
@@ -118,7 +119,7 @@ jobs:
 
     steps:
       - name: Checkout Repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v3
 
       - name: Verify Icon File Exists
         run: |
@@ -128,7 +129,7 @@ jobs:
           fi
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v4
         with:
           python-version: '3.11'
 
@@ -202,10 +203,10 @@ jobs:
 
     steps:
       - name: Checkout Repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v3
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v4
         with:
           python-version: '3.11'
 
