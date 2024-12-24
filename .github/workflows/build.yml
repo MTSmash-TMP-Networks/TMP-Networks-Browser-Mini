@@ -88,14 +88,14 @@ jobs:
       - name: Build EXE
         shell: powershell
         run: |
-          pyinstaller --onefile --windowed 
-            --icon=assets/logo.ico 
-            --hidden-import PyQt6.QtWebEngineCore 
-            --hidden-import PyQt6.QtWebEngineWidgets 
-            --add-binary "C:/Program Files/VideoLAN/VLC/libvlc.dll;." 
-            --add-binary "C:/Program Files/VideoLAN/VLC/libvlccore.dll;." 
-            --add-data "C:/Program Files/VideoLAN/VLC/plugins;plugins" 
-            --add-data "$env:PUBLIC_SUFFIX_PATH;whois/data" 
+          pyinstaller --onefile --windowed ^
+            --icon=assets/logo.ico ^
+            --hidden-import PyQt6.QtWebEngineCore ^
+            --hidden-import PyQt6.QtWebEngineWidgets ^
+            --add-binary "C:/Program Files/VideoLAN/VLC/libvlc.dll;." ^
+            --add-binary "C:/Program Files/VideoLAN/VLC/libvlccore.dll;." ^
+            --add-data "C:/Program Files/VideoLAN/VLC/plugins;plugins" ^
+            --add-data "$env:PUBLIC_SUFFIX_PATH;whois/data" ^
             TMP-Networks-Browser-Mini.py
           
           # Überprüfe den Inhalt von dist/
