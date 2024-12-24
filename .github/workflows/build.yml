@@ -212,7 +212,7 @@ jobs:
       - name: Install Dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y vlc libvlc-dev build-essential
+          sudo apt-get install -y vlc libvlc-dev build-essential pkg-config
 
       - name: Verify VLC Installation Path
         run: |
@@ -232,12 +232,22 @@ jobs:
             exit 1
           fi
 
-          PLUGINS_PATH=$(dirname "$LIBVLC_PATH")/plugins
+          # Bestimme den korrekten Pfad zu den VLC-Plugins
+          PLUGINS_PATH=$(dirname "$LIBVLC_PATH")/vlc/plugins
           if [ -d "$PLUGINS_PATH" ]; then
             echo "VLC Plugins gefunden unter $PLUGINS_PATH."
           else
-            echo "VLC Plugins nicht gefunden unter $PLUGINS_PATH."
-            exit 1
+            # Fallback-Pfade prüfen
+            if [ -d "/usr/lib/vlc/plugins" ]; then
+              PLUGINS_PATH="/usr/lib/vlc/plugins"
+              echo "VLC Plugins gefunden unter $PLUGINS_PATH."
+            elif [ -d "/usr/lib/x86_64-linux-gnu/vlc/plugins" ]; then
+              PLUGINS_PATH="/usr/lib/x86_64-linux-gnu/vlc/plugins"
+              echo "VLC Plugins gefunden unter $PLUGINS_PATH."
+            else
+              echo "VLC Plugins nicht gefunden unter den erwarteten Verzeichnissen."
+              exit 1
+            fi
           fi
 
           echo "LIBVLC_PATH=$LIBVLC_PATH" >> $GITHUB_ENV
