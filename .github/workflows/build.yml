@@ -161,7 +161,6 @@ jobs:
           # Baue die App mit PyInstaller und füge die Daten-Datei hinzu
           pyinstaller --windowed \
             --icon=assets/logo.icns \
-            --version-file=version.rc \
             --hidden-import PyQt6.QtWebEngineCore \
             --hidden-import PyQt6.QtWebEngineWidgets \
             --add-binary "/Applications/VLC.app/Contents/MacOS/lib/libvlc.dylib:." \
