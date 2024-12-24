@@ -46,7 +46,7 @@ def get_emoji_font():
     Vereinfachtes Fallback: Liefert 'Arial' mit Größe 16 zurück,
     um Probleme mit QFontDatabase zu vermeiden.
     """
-    return QFont("Arial", 16)
+    return QFont("Noto Color Emoji", 16)
 
 class WebChannelInterface(QObject):
     def __init__(self, browser):
