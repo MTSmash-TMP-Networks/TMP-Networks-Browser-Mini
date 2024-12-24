@@ -10,209 +10,27 @@ on:
 
 jobs:
   # ------------------------------
-  # 1) BUILD ON WINDOWS
-  # ------------------------------
-  build-windows:
-    runs-on: windows-latest
-
-    steps:
-      - name: Checkout Repository
-        uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
-
-      - name: Install VLC
-        run: choco install vlc -y
-
-      - name: Verify VLC Installation Path
-        run: |
-          if (Test-Path "C:\Program Files\VideoLAN\VLC\libvlc.dll") {
-            Write-Output "libvlc.dll gefunden."
-          } else {
-            Write-Error "libvlc.dll nicht gefunden."
-            exit 1
-          }
-
-          if (Test-Path "C:\Program Files\VideoLAN\VLC\libvlccore.dll") {
-            Write-Output "libvlccore.dll gefunden."
-          } else {
-            Write-Error "libvlccore.dll nicht gefunden."
-            exit 1
-          }
-
-          if (Test-Path "C:\Program Files\VideoLAN\VLC\plugins") {
-            Write-Output "VLC Plugins gefunden."
-          } else {
-            Write-Error "VLC Plugins nicht gefunden."
-            exit 1
-          }
-
-      - name: Install Dependencies
-        run: |
-          pip install --upgrade pip
-          pip install -r requirements.txt
-          pip install --upgrade pyinstaller appdirs
-
-      - name: Find public_suffix_list.dat
-        id: find_public_suffix
-        shell: powershell
-        run: |
-          $PUBLIC_SUFFIX_PATH = python -c "import whois, os; print(os.path.join(os.path.dirname(whois.__file__), 'data', 'public_suffix_list.dat'))"
-          Write-Output "PUBLIC_SUFFIX_PATH=$PUBLIC_SUFFIX_PATH" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-
-      - name: Verify public_suffix_list.dat Exists
-        shell: powershell
-        run: |
-          if (!(Test-Path $env:PUBLIC_SUFFIX_PATH)) {
-            Write-Error "public_suffix_list.dat nicht gefunden unter $env:PUBLIC_SUFFIX_PATH"
-            exit 1
-          } else {
-            Write-Output "public_suffix_list.dat gefunden."
-          }
-
-      - name: Display Python Version
-        run: python --version
-
-      - name: List Installed Packages
-        run: pip list
-
-      - name: Display Environment Variables
-        shell: powershell
-        run: |
-          Write-Output "Umgebungsvariablen:"
-          Get-ChildItem Env:
-
-      - name: Build EXE
-        shell: powershell
-        run: |
-          pyinstaller --onefile --windowed `
-            --icon=assets/logo.ico `
-            --hidden-import PyQt6.QtWebEngineCore `
-            --hidden-import PyQt6.QtWebEngineWidgets `
-            --add-binary "C:/Program Files/VideoLAN/VLC/libvlc.dll;." `
-            --add-binary "C:/Program Files/VideoLAN/VLC/libvlccore.dll;." `
-            --add-data "C:/Program Files/VideoLAN/VLC/plugins;plugins" `
-            --add-data "$env:PUBLIC_SUFFIX_PATH;whois/data" `
-            TMP-Networks-Browser-Mini.py
-          
-          # Überprüfe den Inhalt von dist/
-          Write-Output "Inhalt von dist/:"
-          Get-ChildItem -Recurse dist/
-
-      - name: Upload Build Artifact
-        uses: actions/upload-artifact@v3
-        with:
-          name: TMP-Networks-Browser-Mini-Windows-Executable
-          path: dist/TMP-Networks-Browser-Mini.exe
-          if-no-files-found: warn
-          include-hidden-files: false
-
-  # ------------------------------
-  # 2) BUILD ON macOS
-  # ------------------------------
-  build-macos:
-    runs-on: macos-latest
-
-    steps:
-      - name: Checkout Repository
-        uses: actions/checkout@v4
-
-      - name: Verify Icon File Exists
-        run: |
-          if [ ! -f assets/logo.icns ]; then
-            echo "Error: assets/logo.icns not found!"
-            exit 1
-          fi
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
-
-      - name: Install VLC
-        run: brew install --cask vlc
-
-      - name: Install Dependencies
-        run: |
-          pip install --upgrade pip
-          pip install -r requirements.txt
-          pip install --upgrade pyinstaller appdirs
-
-      - name: Find public_suffix_list.dat
-        id: find_public_suffix
-        run: |
-          PUBLIC_SUFFIX_PATH=$(python -c "import whois, os; print(os.path.join(os.path.dirname(whois.__file__), 'data', 'public_suffix_list.dat'))")
-          echo "PUBLIC_SUFFIX_PATH=$PUBLIC_SUFFIX_PATH" >> $GITHUB_ENV
-
-      - name: Build macOS App
-        run: |
-          # Entferne vorherige Builds
-          rm -rf build dist
-
-          # Überprüfen, ob die Datei existiert
-          if [ ! -f "$PUBLIC_SUFFIX_PATH" ]; then
-            echo "Error: public_suffix_list.dat nicht gefunden unter $PUBLIC_SUFFIX_PATH"
-            exit 1
-          fi
-
-          # Baue die App mit PyInstaller und füge die Daten-Datei hinzu
-          pyinstaller --windowed \
-            --icon=assets/logo.icns \
-            --hidden-import PyQt6.QtWebEngineCore \
-            --hidden-import PyQt6.QtWebEngineWidgets \
-            --add-binary "/Applications/VLC.app/Contents/MacOS/lib/libvlc.dylib:." \
-            --add-binary "/Applications/VLC.app/Contents/MacOS/lib/libvlccore.dylib:." \
-            --add-data "/Applications/VLC.app/Contents/MacOS/plugins:plugins" \
-            --add-data "$PUBLIC_SUFFIX_PATH:whois/data" \
-            TMP-Networks-Browser-Mini.py
-
-      - name: List dist Directory
-        run: |
-          echo "Inhalt von dist/:"
-          ls -la dist/
-
-      - name: Check Write Permissions
-        run: |
-          echo "Überprüfe Schreibrechte im Application Support-Verzeichnis:"
-          python -c "import appdirs, os; dirs = appdirs.AppDirs('TMPNetworksBrowserMini', 'MTSmash'); print(dirs.user_data_dir)"
-          python -c "import appdirs, os; dirs = appdirs.AppDirs('TMPNetworksBrowserMini', 'MTSmash'); os.makedirs(dirs.user_data_dir, exist_ok=True); open(os.path.join(dirs.user_data_dir, 'test_write.txt'), 'w').close()"
-
-      - name: Compress .app for Artifact
-        run: |
-          # Komprimiere die fertige App als ZIP
-          cd dist
-          ditto -c -k --sequesterRsrc --keepParent "TMP-Networks-Browser-Mini.app" \
-                "TMP-Networks-Browser-Mini-macOS.zip"
-
-      - name: Upload Build Artifact
-        uses: actions/upload-artifact@v3
-        with:
-          name: TMP-Networks-Browser-Mini-macOS
-          path: dist/TMP-Networks-Browser-Mini-macOS.zip
-          if-no-files-found: warn
-
-  # ------------------------------
-  # 3) BUILD ON LINUX
+  # BUILD ON LINUX WITH DOCKER
   # ------------------------------
   build-linux:
     runs-on: ubuntu-latest
+    container:
+      image: ubuntu:20.04
 
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
-
       - name: Install Dependencies
         run: |
-          sudo apt-get update
-          sudo apt-get install -y vlc libvlc-dev build-essential pkg-config
+          apt-get update && apt-get install -y \
+            python3.11 python3.11-distutils python3-pip \
+            build-essential pkg-config libvlc-dev vlc \
+            curl wget
+
+          # Install PyInstaller
+          python3.11 -m pip install --upgrade pip
+          python3.11 -m pip install pyinstaller appdirs
 
       - name: Verify VLC Installation Path
         run: |
@@ -232,18 +50,14 @@ jobs:
             exit 1
           fi
 
-          # Bestimme den korrekten Pfad zu den VLC-Plugins
           PLUGINS_PATH=$(dirname "$LIBVLC_PATH")/vlc/plugins
           if [ -d "$PLUGINS_PATH" ]; then
             echo "VLC Plugins gefunden unter $PLUGINS_PATH."
           else
-            # Fallback-Pfade prüfen
             if [ -d "/usr/lib/vlc/plugins" ]; then
               PLUGINS_PATH="/usr/lib/vlc/plugins"
-              echo "VLC Plugins gefunden unter $PLUGINS_PATH."
             elif [ -d "/usr/lib/x86_64-linux-gnu/vlc/plugins" ]; then
               PLUGINS_PATH="/usr/lib/x86_64-linux-gnu/vlc/plugins"
-              echo "VLC Plugins gefunden unter $PLUGINS_PATH."
             else
               echo "VLC Plugins nicht gefunden unter den erwarteten Verzeichnissen."
               exit 1
@@ -254,16 +68,10 @@ jobs:
           echo "LIBVLCCORE_PATH=$LIBVLCCORE_PATH" >> $GITHUB_ENV
           echo "PLUGINS_PATH=$PLUGINS_PATH" >> $GITHUB_ENV
 
-      - name: Install Python Dependencies
-        run: |
-          pip install --upgrade pip
-          pip install -r requirements.txt
-          pip install --upgrade pyinstaller appdirs
-
       - name: Find public_suffix_list.dat
         id: find_public_suffix
         run: |
-          PUBLIC_SUFFIX_PATH=$(python -c "import whois, os; print(os.path.join(os.path.dirname(whois.__file__), 'data', 'public_suffix_list.dat'))")
+          PUBLIC_SUFFIX_PATH=$(python3.11 -c "import whois, os; print(os.path.join(os.path.dirname(whois.__file__), 'data', 'public_suffix_list.dat'))")
           echo "PUBLIC_SUFFIX_PATH=$PUBLIC_SUFFIX_PATH" >> $GITHUB_ENV
 
       - name: Verify public_suffix_list.dat Exists
@@ -274,22 +82,6 @@ jobs:
           else
             echo "public_suffix_list.dat gefunden."
           fi
-
-      - name: List Repository Files
-        run: |
-          echo "Listing all files in the repository:"
-          ls -R
-
-      - name: Display Python Version
-        run: python --version
-
-      - name: List Installed Packages
-        run: pip list
-
-      - name: Display Environment Variables
-        run: |
-          echo "Umgebungsvariablen:"
-          printenv
 
       - name: Build Executable
         run: |
@@ -304,7 +96,6 @@ jobs:
             --add-data "$PUBLIC_SUFFIX_PATH:whois/data" \
             TMP-Networks-Browser-Mini.py
 
-          # Überprüfe den Inhalt von dist/
           echo "Inhalt von dist/:"
           ls -R dist/
 
