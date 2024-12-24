@@ -307,9 +307,39 @@ jobs:
           echo "Inhalt von dist/:"
           ls -R dist/
 
+      - name: Create Desktop Entry
+        run: |
+          # Erstelle ein Verzeichnis für das Paket
+          mkdir -p dist/package
+
+          # Kopiere die ausführbare Datei in das Paketverzeichnis
+          cp dist/TMP-Networks-Browser-Mini dist/package/
+
+          # Kopiere das Icon in das Paketverzeichnis
+          cp assets/logo.png dist/package/
+
+          # Erstelle die .desktop-Datei
+          cat > dist/package/TMP-Networks-Browser-Mini.desktop <<EOL
+          [Desktop Entry]
+          Name=TMP Networks Browser Mini
+          Exec=./TMP-Networks-Browser-Mini
+          Icon=logo.png
+          Type=Application
+          Categories=Utility;
+          EOL
+
+          # Stelle sicher, dass die .desktop-Datei ausführbar ist
+          chmod +x dist/package/TMP-Networks-Browser-Mini.desktop
+
+      - name: Compress Package for Artifact
+        run: |
+          # Komprimiere das Paket als ZIP
+          cd dist
+          zip -r TMP-Networks-Browser-Mini-Linux.zip package
+
       - name: Upload Build Artifact
         uses: actions/upload-artifact@v3
         with:
-          name: TMP-Networks-Browser-Mini-Linux-Executable
-          path: dist/TMP-Networks-Browser-Mini
+          name: TMP-Networks-Browser-Mini-Linux
+          path: dist/TMP-Networks-Browser-Mini-Linux.zip
           if-no-files-found: warn
