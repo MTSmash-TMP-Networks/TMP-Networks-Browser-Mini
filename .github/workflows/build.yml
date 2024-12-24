@@ -97,7 +97,7 @@ jobs:
             --add-data "C:/Program Files/VideoLAN/VLC/plugins;plugins" `
             --add-data "$env:PUBLIC_SUFFIX_PATH;whois/data" `
             TMP-Networks-Browser-Mini.py
-          
+        
           # Überprüfe den Inhalt von dist/
           Write-Output "Inhalt von dist/:"
           Get-ChildItem -Recurse dist/
@@ -212,7 +212,10 @@ jobs:
       - name: Install Dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y vlc libvlc-dev build-essential pkg-config
+          sudo apt-get install -y vlc libvlc-dev build-essential pkg-config \
+            libxcb-cursor0 libxcb-icccm4 libxcb-image0 libxcb-keysyms1 \
+            libxcb-randr0 libxcb-render-util0 libxcb-shape0 libxcb-sync1 \
+            libxcb-xfixes0 libxcb-xinerama0 libxkbcommon-x11-0
 
       - name: Verify VLC Installation Path
         run: |
