@@ -193,3 +193,109 @@ jobs:
           name: TMP-Networks-Browser-Mini-macOS
           path: dist/TMP-Networks-Browser-Mini-macOS.zip
           if-no-files-found: warn
+
+  # ------------------------------
+  # 3) BUILD ON LINUX
+  # ------------------------------
+  build-linux:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install Dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y vlc libvlc-dev build-essential
+
+      - name: Verify VLC Installation Path
+        run: |
+          LIBVLC_PATH=$(ldconfig -p | grep libvlc.so | head -n 1 | awk '{print $4}')
+          if [ -f "$LIBVLC_PATH" ]; then
+            echo "libvlc.so gefunden unter $LIBVLC_PATH."
+          else
+            echo "libvlc.so nicht gefunden."
+            exit 1
+          fi
+
+          LIBVLCCORE_PATH=$(ldconfig -p | grep libvlccore.so | head -n 1 | awk '{print $4}')
+          if [ -f "$LIBVLCCORE_PATH" ]; then
+            echo "libvlccore.so gefunden unter $LIBVLCCORE_PATH."
+          else
+            echo "libvlccore.so nicht gefunden."
+            exit 1
+          fi
+
+          PLUGINS_PATH=$(dirname "$LIBVLC_PATH")/plugins
+          if [ -d "$PLUGINS_PATH" ]; then
+            echo "VLC Plugins gefunden unter $PLUGINS_PATH."
+          else
+            echo "VLC Plugins nicht gefunden unter $PLUGINS_PATH."
+            exit 1
+          fi
+
+          echo "LIBVLC_PATH=$LIBVLC_PATH" >> $GITHUB_ENV
+          echo "LIBVLCCORE_PATH=$LIBVLCCORE_PATH" >> $GITHUB_ENV
+          echo "PLUGINS_PATH=$PLUGINS_PATH" >> $GITHUB_ENV
+
+      - name: Install Python Dependencies
+        run: |
+          pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install --upgrade pyinstaller appdirs
+
+      - name: Find public_suffix_list.dat
+        id: find_public_suffix
+        run: |
+          PUBLIC_SUFFIX_PATH=$(python -c "import whois, os; print(os.path.join(os.path.dirname(whois.__file__), 'data', 'public_suffix_list.dat'))")
+          echo "PUBLIC_SUFFIX_PATH=$PUBLIC_SUFFIX_PATH" >> $GITHUB_ENV
+
+      - name: Verify public_suffix_list.dat Exists
+        run: |
+          if [ ! -f "$PUBLIC_SUFFIX_PATH" ]; then
+            echo "public_suffix_list.dat nicht gefunden unter $PUBLIC_SUFFIX_PATH"
+            exit 1
+          else
+            echo "public_suffix_list.dat gefunden."
+          fi
+
+      - name: Display Python Version
+        run: python --version
+
+      - name: List Installed Packages
+        run: pip list
+
+      - name: Display Environment Variables
+        run: |
+          echo "Umgebungsvariablen:"
+          printenv
+
+      - name: Build Executable
+        run: |
+          pyinstaller --onefile \
+            --windowed \
+            --icon=assets/logo.png \  # Verwende ein passendes Icon-Format für Linux
+            --hidden-import PyQt6.QtWebEngineCore \
+            --hidden-import PyQt6.QtWebEngineWidgets \
+            --add-binary "$LIBVLC_PATH:." \
+            --add-binary "$LIBVLCCORE_PATH:." \
+            --add-data "$PLUGINS_PATH:plugins" \
+            --add-data "$PUBLIC_SUFFIX_PATH:whois/data" \
+            TMP-Networks-Browser-Mini.py
+
+          # Überprüfe den Inhalt von dist/
+          echo "Inhalt von dist/:"
+          ls -R dist/
+
+      - name: Upload Build Artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: TMP-Networks-Browser-Mini-Linux-Executable
+          path: dist/TMP-Networks-Browser-Mini
+          if-no-files-found: warn
