@@ -275,6 +275,11 @@ jobs:
             echo "public_suffix_list.dat gefunden."
           fi
 
+      - name: List Repository Files
+        run: |
+          echo "Listing all files in the repository:"
+          ls -R
+
       - name: Display Python Version
         run: python --version
 
@@ -290,7 +295,7 @@ jobs:
         run: |
           pyinstaller --onefile \
             --windowed \
-            --icon=assets/logo.png \  # Verwende ein passendes Icon-Format für Linux
+            --icon=assets/logo.png \
             --hidden-import PyQt6.QtWebEngineCore \
             --hidden-import PyQt6.QtWebEngineWidgets \
             --add-binary "$LIBVLC_PATH:." \
