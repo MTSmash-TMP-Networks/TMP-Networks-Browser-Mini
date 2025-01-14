@@ -23,7 +23,7 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtGui import QAction, QFont
 from PyQt6.QtCore import QUrl, QSize, QObject, pyqtSlot, Qt, QTimer
-from PyQt6.QtWebEngineWidgets import QWebEngineView, QWebEnginePage
+from PyQt6.QtWebEngineWidgets import QWebEngineView
 from PyQt6.QtWebChannel import QWebChannel
 
 # AppDirs für plattformübergreifende Pfadverwaltung
@@ -31,7 +31,6 @@ from appdirs import AppDirs
 
 # NEU/GEÄNDERT: yt-dlp importieren
 import yt_dlp  # <--- Achte darauf, dass du yt-dlp installiert hast
-
 
 dirs = AppDirs("TMPNetworksBrowserMini", "DeinName")
 json_dir = dirs.user_data_dir
@@ -198,45 +197,12 @@ class VLCPlayerDialog(QDialog):
         self.media_player.stop()
         super().closeEvent(event)
 
-
-# --- NEU: Custom WebEnginePage, um Clipboard-Zugriff zu erlauben --- #
-class CustomWebEnginePage(QWebEnginePage):
-    """
-    Gewährt Zugriff auf die Zwischenablage (Clipboard) für JavaScript.
-    So kann z.B. der Copy-Button auf Google Translate funktionieren.
-    """
-    def __init__(self, parent=None):
-        super().__init__(parent)
-
-    def featurePermissionRequested(self, security_origin, feature):
-        # Clipboard kann sowohl Lesen als auch Schreiben anfragen
-        if feature in (
-            QWebEnginePage.Feature.Clipboard,
-            QWebEnginePage.Feature.ClipboardRead,
-            QWebEnginePage.Feature.ClipboardWrite,
-        ):
-            self.setFeaturePermission(
-                security_origin,
-                feature,
-                QWebEnginePage.PermissionPolicy.PermissionGrantedByUser
-            )
-        else:
-            super().featurePermissionRequested(security_origin, feature)
-
-
 class CustomWebEngineView(QWebEngineView):
     def __init__(self, browser):
         super().__init__()
         self.browser = browser
-        
-        # Nutze unsere CustomWebEnginePage
-        page = CustomWebEnginePage(self)
-        self.setPage(page)
 
     def createWindow(self, requested_window_type):
-        """
-        Interzeptiert Pop-up-Anfragen.
-        """
         reply = QMessageBox.question(
             self.browser,
             "Pop-up anfordern",
@@ -251,7 +217,6 @@ class CustomWebEngineView(QWebEngineView):
             return popup_browser
         else:
             return None
-
 
 class LoginDialog(QDialog):
     def __init__(self, parent=None, username="", password=""):
@@ -280,7 +245,6 @@ class LoginDialog(QDialog):
 
     def get_credentials(self):
         return self.username_edit.text(), self.password_edit.text()
-
 
 class CredentialsManagerDialog(QDialog):
     def __init__(self, parent=None, credentials_dict=None):
@@ -355,7 +319,6 @@ class CredentialsManagerDialog(QDialog):
             item = QListWidgetItem(domain)
             self.list_widget.addItem(item)
 
-
 class EditFavoriteDialog(QDialog):
     """
     Dialog zum Bearbeiten eines einzelnen Favoriten (Titel/URL).
@@ -385,7 +348,6 @@ class EditFavoriteDialog(QDialog):
 
     def get_values(self):
         return self.title_edit.text(), self.url_edit.text()
-
 
 class FavoritesManagerDialog(QDialog):
     """
@@ -486,7 +448,6 @@ class FavoritesManagerDialog(QDialog):
             item = QListWidgetItem(item_text)
             self.list_widget.addItem(item)
 
-
 class HistoryDialog(QDialog):
     """
     Einfache Dialogklasse, um die Chronik anzuzeigen.
@@ -526,7 +487,6 @@ class HistoryDialog(QDialog):
                 main_window.navigate_to_url_string(url)
             self.accept()
 
-
 class WhoisDialog(QDialog):
     def __init__(self, domain_info, ip_info, parent=None):
         super().__init__(parent)
@@ -563,7 +523,6 @@ class WhoisDialog(QDialog):
         layout.addWidget(close_btn)
         
         self.setLayout(layout)
-
 
 class Browser(QMainWindow):
     def __init__(self):
@@ -729,13 +688,9 @@ class Browser(QMainWindow):
         browser = CustomWebEngineView(self)
         browser.setUrl(qurl)
         browser.page().profile().downloadRequested.connect(self.on_downloadRequested)
-        browser.loadFinished.connect(
-            lambda _, b=browser: self.check_credentials(b)
-        )
-        browser.loadFinished.connect(
-            lambda _, i=self.tabs.count()-1, b=browser:
-            self.tabs.setTabText(self.tabs.indexOf(b), b.page().title())
-        )
+        browser.loadFinished.connect(lambda _, b=browser: self.check_credentials(b))
+        browser.loadFinished.connect(lambda _, i=self.tabs.count()-1, b=browser:
+                                     self.tabs.setTabText(self.tabs.indexOf(b), b.page().title()))
         browser.urlChanged.connect(lambda new_url, b=browser: self.update_url_bar(new_url, b))
         i = self.tabs.addTab(browser, label)
         self.tabs.setCurrentIndex(i)
@@ -904,7 +859,6 @@ class Browser(QMainWindow):
         creds_dialog.resize(400, 300)
         layout = QVBoxLayout()
         creds_label = QLabel(creds_text)
-        # Damit man den Text mit der Maus kopieren kann:
         creds_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
         layout.addWidget(creds_label)
         close_btn = QPushButton("Schließen")
@@ -1115,8 +1069,9 @@ class Browser(QMainWindow):
         current_url = self.tabs.currentWidget().url().toString()
         domain = QUrl(current_url).host().lower()
 
-        # Wenn es eine YouTube-URL ist, verwende yt-dlp
-        if "youtube.com" in domain or "youtu.be" in domain or "pornhub.org" in domain:
+        # Wenn es eine YouTube-URL ist, verwende yt-dlp statt <video>-Tags
+        # (Abfrage kann man ausbauen: "youtube.com", "youtu.be", "youtube-nocookie.com", etc.)
+        if "youtube.com" in domain or "youtu.be" or "pornhub.org" in domain:
             self.handle_youtube_via_yt_dlp(current_url)
             return
 
@@ -1358,7 +1313,6 @@ class Browser(QMainWindow):
         if isinstance(value, datetime):
             return value.strftime('%Y-%m-%d %H:%M:%S')
         return str(value)
-
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
