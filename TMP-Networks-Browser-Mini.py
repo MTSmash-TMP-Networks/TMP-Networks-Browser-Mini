@@ -29,6 +29,9 @@ from PyQt6.QtWebChannel import QWebChannel
 # AppDirs für plattformübergreifende Pfadverwaltung
 from appdirs import AppDirs
 
+# NEU/GEÄNDERT: yt-dlp importieren
+import yt_dlp  # <--- Achte darauf, dass du yt-dlp installiert hast
+
 dirs = AppDirs("TMPNetworksBrowserMini", "DeinName")
 json_dir = dirs.user_data_dir
 json_path = os.path.join(json_dir, "favoriten_und_passwoerter.json")
@@ -982,8 +985,97 @@ class Browser(QMainWindow):
         else:
             QMessageBox.information(self, "Info", "Keine geeigneten Eingabefelder gefunden.")
 
-    # -------------- Videos scannen & abspielen -------------- #
+    # -------------- NEU/GEÄNDERT: Extra Methode für YouTube -------------- #
+    def handle_youtube_via_yt_dlp(self, youtube_url):
+        """
+        Fragt via yt-dlp die verfügbaren Streams (Formate) für das gegebene YouTube-Video ab
+        und öffnet sie dann wahlweise im VLC-Dialog.
+        """
+        ydl_opts = {
+            'quiet': True,
+            'no_warnings': True,
+            'format': 'best'  # oder 'bestvideo+bestaudio/best' je nach Bedarf
+        }
+        try:
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                info = ydl.extract_info(youtube_url, download=False)
+                formats = info.get('formats', [])
+                if not formats:
+                    QMessageBox.warning(self, "Fehler", "Keine abspielbaren Formate gefunden.")
+                    return
+
+                # Alle Formate auflisten
+                variant_list = []
+                for f in formats:
+                    # Resolution kann z.B. "1920x1080" sein oder None
+                    resolution = f.get('resolution') or f"{f.get('width','?')}x{f.get('height','?')}"
+                    label = f"{resolution} ({f.get('ext','?')}, {f.get('format_id','?')}, {f.get('fps','?')}fps)"
+                    direct_url = f.get('url')
+                    if direct_url:
+                        variant_list.append((label, direct_url))
+
+                if not variant_list:
+                    QMessageBox.warning(self, "Fehler", "Keine abspielbaren Direct-URLs gefunden.")
+                    return
+
+                # Wenn es nur ein Format gibt, direkt abspielen:
+                if len(variant_list) == 1:
+                    self.play_video_in_vlc(variant_list[0][1])
+                    return
+
+                # Sonst: Dialog zur Auswahl des Formats
+                dlg = QDialog(self)
+                dlg.setWindowTitle("Stream auswählen")
+                dlg.resize(400, 300)
+                layout = QVBoxLayout(dlg)
+
+                info_label = QLabel(f"Formate für: {info.get('title', youtube_url)}")
+                layout.addWidget(info_label)
+
+                list_widget = QListWidget()
+                for label_text, url in variant_list:
+                    item = QListWidgetItem(label_text)
+                    item.setData(Qt.ItemDataRole.UserRole, url)
+                    list_widget.addItem(item)
+                layout.addWidget(list_widget)
+
+                btn_layout = QHBoxLayout()
+                ok_btn = QPushButton("Abspielen")
+                cancel_btn = QPushButton("Abbrechen")
+                btn_layout.addWidget(ok_btn)
+                btn_layout.addWidget(cancel_btn)
+                layout.addLayout(btn_layout)
+
+                def on_ok():
+                    item = list_widget.currentItem()
+                    if item:
+                        chosen_url = item.data(Qt.ItemDataRole.UserRole)
+                        self.play_video_in_vlc(chosen_url)
+                    dlg.accept()
+
+                def on_cancel():
+                    dlg.reject()
+
+                ok_btn.clicked.connect(on_ok)
+                cancel_btn.clicked.connect(on_cancel)
+
+                dlg.exec()
+
+        except Exception as e:
+            QMessageBox.warning(self, "YouTube-Fehler", f"Fehler beim Abrufen der Streams:\n{e}")
+
+    # -------------- NEU/GEÄNDERT: Scan & Play-Methode anpassen -------------- #
     def scan_and_play_videos(self):
+        current_url = self.tabs.currentWidget().url().toString()
+        domain = QUrl(current_url).host().lower()
+
+        # Wenn es eine YouTube-URL ist, verwende yt-dlp statt <video>-Tags
+        # (Abfrage kann man ausbauen: "youtube.com", "youtu.be", "youtube-nocookie.com", etc.)
+        if "youtube.com" in domain or "youtu.be" or "pornhub.org" in domain:
+            self.handle_youtube_via_yt_dlp(current_url)
+            return
+
+        # --- Bestehender Code für normale <video>-Elemente --- #
         js_code = r"""
         (function() {
             var videos = document.getElementsByTagName('video');
@@ -1105,8 +1197,7 @@ class Browser(QMainWindow):
     def parse_m3u8_for_all_variants(self, m3u8_url):
         """
         Lädt ein M3U8 (Master) Manifest herunter und gibt
-        eine Liste aller (label, url)-Paare zurück,
-        z.B. ["720p (3500000 bps)", "1080p (6000000 bps)", ...].
+        eine Liste aller (label, url)-Paare zurück.
         """
         from urllib.parse import urljoin
 
@@ -1157,7 +1248,6 @@ class Browser(QMainWindow):
         list_widget = QListWidget()
         for label_text, url in variants:
             item = QListWidgetItem(label_text)
-            # URL in "Data" speichern:
             item.setData(Qt.ItemDataRole.UserRole, url)
             list_widget.addItem(item)
         layout.addWidget(list_widget)
