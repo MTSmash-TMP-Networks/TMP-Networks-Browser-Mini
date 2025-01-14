@@ -21,9 +21,9 @@ from PyQt6.QtWidgets import (
     QDialog, QPushButton, QLabel, QMenu, QListWidget, QListWidgetItem, QHBoxLayout,
     QSizePolicy, QFrame, QSlider, QTextEdit, QScrollArea
 )
-from PyQt6.QtGui import QAction, QFont
+from PyQt6.QtGui import QAction, QFont, QClipboard
 from PyQt6.QtCore import QUrl, QSize, QObject, pyqtSlot, Qt, QTimer
-from PyQt6.QtWebEngineWidgets import QWebEngineView
+from PyQt6.QtWebEngineWidgets import QWebEngineView, QWebEngineSettings
 from PyQt6.QtWebChannel import QWebChannel
 
 # AppDirs für plattformübergreifende Pfadverwaltung
@@ -38,20 +38,26 @@ json_path = os.path.join(json_dir, "favoriten_und_passwoerter.json")
 os.makedirs(json_dir, exist_ok=True)
 DATA_FILE = json_path
 
+
 def get_emoji_font():
     """ 
     Vereinfachtes Fallback: Liefert z.B. 'Noto Color Emoji' mit Größe 16
     """
     return QFont("Noto Color Emoji", 16)
 
+
 class WebChannelInterface(QObject):
     def __init__(self, browser):
         super().__init__()
         self.browser = browser
 
-    @pyqtSlot(str, str)
-    def submit_form(self, username, password):
-        self.browser.handle_form_submission(username, password)
+    @pyqtSlot(str)
+    def copy_text(self, text):
+        """Kopiert den gegebenen Text in die Zwischenablage."""
+        clipboard = QApplication.clipboard()
+        clipboard.setText(text)
+        QMessageBox.information(self.browser, "Kopiert", "Text wurde in die Zwischenablage kopiert.")
+
 
 class VLCPlayerDialog(QDialog):
     """
@@ -197,26 +203,37 @@ class VLCPlayerDialog(QDialog):
         self.media_player.stop()
         super().closeEvent(event)
 
+
 class CustomWebEngineView(QWebEngineView):
     def __init__(self, browser):
         super().__init__()
         self.browser = browser
 
-    def createWindow(self, requested_window_type):
-        reply = QMessageBox.question(
-            self.browser,
-            "Pop-up anfordern",
-            "Eine Webseite möchte ein Pop-up öffnen. Möchten Sie es erlauben?",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-            QMessageBox.StandardButton.No
-        )
-        if reply == QMessageBox.StandardButton.Yes:
-            popup_browser = CustomWebEngineView(self.browser)
-            i = self.browser.tabs.addTab(popup_browser, "Neues Fenster")
-            self.browser.tabs.setCurrentIndex(i)
-            return popup_browser
-        else:
-            return None
+        # NEU: QWebChannel einrichten
+        self.channel = QWebChannel()
+        self.interface = WebChannelInterface(browser)
+        self.channel.registerObject('interface', self.interface)
+        self.page().setWebChannel(self.channel)
+
+        # NEU: JavaScript einfügen, um den WebChannel zu nutzen
+        self.page().loadFinished.connect(self.on_load_finished)
+
+        # GEÄNDERT: Erlaube JavaScript den Zugriff auf die Zwischenablage
+        self.settings().setAttribute(QWebEngineSettings.JavascriptCanAccessClipboard, True)
+
+    def on_load_finished(self):
+        # JavaScript, um eine globale Funktion zum Kopieren zu erstellen
+        js_code = """
+        new QWebChannel(qt.webChannelTransport, function(channel) {
+            window.interface = channel.objects.interface;
+        });
+
+        function copyToClipboard(text) {
+            interface.copy_text(text);
+        }
+        """
+        self.page().runJavaScript(js_code)
+
 
 class LoginDialog(QDialog):
     def __init__(self, parent=None, username="", password=""):
@@ -246,7 +263,12 @@ class LoginDialog(QDialog):
     def get_credentials(self):
         return self.username_edit.text(), self.password_edit.text()
 
+
 class CredentialsManagerDialog(QDialog):
+    """
+    Dialog zum Verwalten der gespeicherten Zugangsdaten.
+    Ermöglicht Bearbeiten, Löschen und Kopieren-Button.
+    """
     def __init__(self, parent=None, credentials_dict=None):
         super().__init__(parent)
         self.setWindowTitle("Passwörter verwalten")
@@ -261,12 +283,20 @@ class CredentialsManagerDialog(QDialog):
         layout.addWidget(self.list_widget)
 
         btn_layout = QHBoxLayout()
+
         self.edit_btn = QPushButton("Bearbeiten")
-        self.delete_btn = QPushButton("Löschen")
         self.edit_btn.clicked.connect(self.edit_credentials)
-        self.delete_btn.clicked.connect(self.delete_credentials)
         btn_layout.addWidget(self.edit_btn)
+
+        self.delete_btn = QPushButton("Löschen")
+        self.delete_btn.clicked.connect(self.delete_credentials)
         btn_layout.addWidget(self.delete_btn)
+
+        # NEU: Kopieren-Button
+        self.copy_btn = QPushButton("Kopieren")
+        self.copy_btn.clicked.connect(self.copy_credentials)
+        btn_layout.addWidget(self.copy_btn)
+
         layout.addLayout(btn_layout)
 
         close_btn = QPushButton("Schließen")
@@ -313,11 +343,34 @@ class CredentialsManagerDialog(QDialog):
             self.list_widget.takeItem(self.list_widget.row(selected_item))
             QMessageBox.information(self, "Erfolg", f"Zugangsdaten für {domain} gelöscht.")
 
+    def copy_credentials(self):
+        """Kopiert die Zugangsdaten für den ausgewählten Eintrag in die Zwischenablage."""
+        selected_item = self.list_widget.currentItem()
+        if not selected_item:
+            QMessageBox.information(self, "Info", "Bitte wählen Sie einen Eintrag aus.")
+            return
+
+        domain = selected_item.text()
+        creds = self.credentials[domain]
+        username = creds["username"]
+        password = creds["password"]
+
+        text_to_copy = (
+            f"Domain: {domain}\n"
+            f"Benutzername: {username}\n"
+            f"Passwort: {password}"
+        )
+
+        clipboard = QApplication.clipboard()
+        clipboard.setText(text_to_copy)
+        QMessageBox.information(self, "Info", "Zugangsdaten wurden in die Zwischenablage kopiert.")
+
     def refresh_list(self):
         self.list_widget.clear()
         for domain, creds in sorted(self.credentials.items()):
             item = QListWidgetItem(domain)
             self.list_widget.addItem(item)
+
 
 class EditFavoriteDialog(QDialog):
     """
@@ -348,6 +401,7 @@ class EditFavoriteDialog(QDialog):
 
     def get_values(self):
         return self.title_edit.text(), self.url_edit.text()
+
 
 class FavoritesManagerDialog(QDialog):
     """
@@ -448,6 +502,7 @@ class FavoritesManagerDialog(QDialog):
             item = QListWidgetItem(item_text)
             self.list_widget.addItem(item)
 
+
 class HistoryDialog(QDialog):
     """
     Einfache Dialogklasse, um die Chronik anzuzeigen.
@@ -487,6 +542,7 @@ class HistoryDialog(QDialog):
                 main_window.navigate_to_url_string(url)
             self.accept()
 
+
 class WhoisDialog(QDialog):
     def __init__(self, domain_info, ip_info, parent=None):
         super().__init__(parent)
@@ -523,6 +579,7 @@ class WhoisDialog(QDialog):
         layout.addWidget(close_btn)
         
         self.setLayout(layout)
+
 
 class Browser(QMainWindow):
     def __init__(self):
@@ -644,6 +701,11 @@ class Browser(QMainWindow):
         self.status = QStatusBar()
         self.setStatusBar(self.status)
 
+        # NEU: WebChannel einrichten
+        self.channel = QWebChannel()
+        self.interface = WebChannelInterface(self)
+        self.channel.registerObject('interface', self.interface)
+
         # Erster Tab
         self.add_new_tab(QUrl('https://www.google.com'), 'Startseite')
 
@@ -694,6 +756,9 @@ class Browser(QMainWindow):
         browser.urlChanged.connect(lambda new_url, b=browser: self.update_url_bar(new_url, b))
         i = self.tabs.addTab(browser, label)
         self.tabs.setCurrentIndex(i)
+
+        # NEU: Setze den WebChannel für die Seite
+        browser.page().setWebChannel(self.channel)
 
     def close_current_tab(self, index):
         self.tabs.removeTab(index)
@@ -844,9 +909,14 @@ class Browser(QMainWindow):
                 QMessageBox.warning(self, "Warnung", "Benutzername und Passwort dürfen nicht leer sein.")
 
     def view_credentials(self):
+        """
+        Zeigt alle gespeicherten Zugangsdaten in einem Dialog als Text an
+        + Kopierbutton, der den gesamten Text in die Zwischenablage packt.
+        """
         if not self.data["credentials"]:
             QMessageBox.information(self, "Info", "Keine gespeicherten Zugangsdaten vorhanden.")
             return
+
         creds_text = ""
         for domain, creds in sorted(self.data["credentials"].items()):
             creds_text += (
@@ -854,16 +924,33 @@ class Browser(QMainWindow):
                 f"Benutzername: {creds['username']}\n"
                 f"Passwort: {creds['password']}\n\n"
             )
+
+        # Einfache Darstellung in einem Dialog
         creds_dialog = QDialog(self)
         creds_dialog.setWindowTitle("Gespeicherte Zugangsdaten")
         creds_dialog.resize(400, 300)
+
         layout = QVBoxLayout()
-        creds_label = QLabel(creds_text)
-        creds_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
-        layout.addWidget(creds_label)
+        creds_text_edit = QTextEdit()
+        creds_text_edit.setReadOnly(True)
+        creds_text_edit.setText(creds_text)
+        layout.addWidget(creds_text_edit)
+
+        # NEU: Kopier-Button für den gesamten Text
+        copy_btn = QPushButton("Alles kopieren")
+        layout.addWidget(copy_btn)
+
+        def copy_all_credentials():
+            clipboard = QApplication.clipboard()
+            clipboard.setText(creds_text)
+            QMessageBox.information(creds_dialog, "Info", "Alle Zugangsdaten wurden in die Zwischenablage kopiert.")
+
+        copy_btn.clicked.connect(copy_all_credentials)
+
         close_btn = QPushButton("Schließen")
         close_btn.clicked.connect(creds_dialog.accept)
         layout.addWidget(close_btn)
+
         creds_dialog.setLayout(layout)
         creds_dialog.exec()
 
@@ -1007,7 +1094,6 @@ class Browser(QMainWindow):
                 # Alle Formate auflisten
                 variant_list = []
                 for f in formats:
-                    # Resolution kann z.B. "1920x1080" sein oder None
                     resolution = f.get('resolution') or f"{f.get('width','?')}x{f.get('height','?')}"
                     label = f"{resolution} ({f.get('ext','?')}, {f.get('format_id','?')}, {f.get('fps','?')}fps)"
                     direct_url = f.get('url')
@@ -1069,9 +1155,8 @@ class Browser(QMainWindow):
         current_url = self.tabs.currentWidget().url().toString()
         domain = QUrl(current_url).host().lower()
 
-        # Wenn es eine YouTube-URL ist, verwende yt-dlp statt <video>-Tags
-        # (Abfrage kann man ausbauen: "youtube.com", "youtu.be", "youtube-nocookie.com", etc.)
-        if "youtube.com" in domain or "youtu.be" or "pornhub.org" in domain:
+        # Wenn es eine YouTube-URL ist, verwende yt-dlp
+        if "youtube.com" in domain or "youtu.be" in domain:
             self.handle_youtube_via_yt_dlp(current_url)
             return
 
@@ -1313,6 +1398,7 @@ class Browser(QMainWindow):
         if isinstance(value, datetime):
             return value.strftime('%Y-%m-%d %H:%M:%S')
         return str(value)
+
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
