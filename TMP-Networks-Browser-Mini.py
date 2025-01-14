@@ -316,7 +316,11 @@ class CredentialsManagerDialog(QDialog):
                 self.credentials[domain] = {"username": username, "password": password}
                 QMessageBox.information(self, "Erfolg", f"Zugangsdaten für {domain} geändert.")
             else:
-                QMessageBox.warning(self, "Warnung", "Benutzername und Passwort dürfen nicht leer sein.")
+                QMessageBox.warning(
+                    self,
+                    "Warnung",
+                    "Benutzername und Passwort dürfen nicht leer sein."
+                )
 
     def delete_credentials(self):
         selected_item = self.list_widget.currentItem()
@@ -823,13 +827,29 @@ class Browser(QMainWindow):
         self.tabs.currentWidget().setUrl(q)
 
     def on_downloadRequested(self, download):
-        options = QFileDialog.Options()
+        # Anpassung für PyQt6: Verwende QFileDialog.Option (Singular) statt QFileDialog.Options()
+        # Falls keine speziellen Optionen benötigt werden, kannst du das 'options'-Argument weglassen
+        # Hier zeige ich beide Möglichkeiten:
+
+        # Möglichkeit 1: Keine speziellen Optionen
+        # file_path, _ = QFileDialog.getSaveFileName(
+        #     self,
+        #     "Speichern unter",
+        #     download.path(),
+        #     "Alle Dateien (*)"
+        # )
+
+        # Möglichkeit 2: Spezielle Optionen setzen (z.B. Nicht-native Dialog verwenden)
+        # Hier kombiniere ich Optionen mittels bitweiser OR-Operation
+        opts = QFileDialog.Option.DontUseNativeDialog | QFileDialog.Option.DontResolveSymlinks
         file_path, _ = QFileDialog.getSaveFileName(
-            self, 
-            "Speichern unter", 
-            download.path(), 
-            options=options
+            self,
+            "Speichern unter",
+            download.path(),
+            "Alle Dateien (*)",
+            options=opts
         )
+
         if file_path:
             download.setPath(file_path)
             download.accept()
