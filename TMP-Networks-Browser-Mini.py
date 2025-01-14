@@ -554,76 +554,6 @@ class WhoisDialog(QDialog):
         
         self.setLayout(layout)
 
-class HistoryDialog(QDialog):
-    """
-    Einfache Dialogklasse, um die Chronik anzuzeigen.
-    """
-    def __init__(self, parent=None, history_list=None):
-        super().__init__(parent)
-        self.setWindowTitle("Chronik anzeigen")
-        self.resize(400, 300)
-        self.history = history_list if history_list else []
-
-        layout = QVBoxLayout()
-
-        self.list_widget = QListWidget()
-        for entry in self.history:
-            title = entry.get("title", "Ohne Titel")
-            url = entry.get("url", "")
-            item_text = f"{title}\n{url}"
-            item = QListWidgetItem(item_text)
-            self.list_widget.addItem(item)
-        layout.addWidget(self.list_widget)
-
-        # Navigation beim Doppelklick
-        self.list_widget.itemDoubleClicked.connect(self.navigate_from_history)
-
-        close_btn = QPushButton("Schließen")
-        close_btn.clicked.connect(self.accept)
-        layout.addWidget(close_btn)
-
-        self.setLayout(layout)
-
-    def navigate_from_history(self, item):
-        text = item.text()
-        lines = text.split("\n")
-        if len(lines) >= 2:
-            url = lines[-1]
-            main_window = self.parent()
-            if hasattr(main_window, "navigate_to_url_string"):
-                main_window.navigate_to_url_string(url)
-            self.accept()
-
-class EditFavoriteDialog(QDialog):
-    """
-    Dialog zum Bearbeiten eines einzelnen Favoriten (Titel/URL).
-    """
-    def __init__(self, parent=None, title="", url=""):
-        super().__init__(parent)
-        self.setWindowTitle("Favorit bearbeiten")
-        layout = QVBoxLayout()
-
-        self.title_edit = QLineEdit()
-        self.title_edit.setPlaceholderText("Titel")
-        self.title_edit.setText(title)
-        layout.addWidget(QLabel("Titel:"))
-        layout.addWidget(self.title_edit)
-
-        self.url_edit = QLineEdit()
-        self.url_edit.setPlaceholderText("URL")
-        self.url_edit.setText(url)
-        layout.addWidget(QLabel("URL:"))
-        layout.addWidget(self.url_edit)
-
-        save_btn = QPushButton("Speichern")
-        save_btn.clicked.connect(self.accept)
-        layout.addWidget(save_btn)
-
-        self.setLayout(layout)
-
-    def get_values(self):
-        return self.title_edit.text(), self.url_edit.text()
-
 class Browser(QMainWindow):
     def __init__(self):
         super().__init__()
@@ -633,6 +563,9 @@ class Browser(QMainWindow):
 
         if "history" not in self.data:
             self.data["history"] = []
+
+        # Liste zur Speicherung aktiver Downloads, um Garbage Collection zu verhindern
+        self.active_downloads = []
 
         self.tabs = QTabWidget()
         self.tabs.setDocumentMode(True)
@@ -846,8 +779,8 @@ class Browser(QMainWindow):
         browser.setUrl(qurl)
         browser.page().profile().downloadRequested.connect(self.on_downloadRequested)
         browser.loadFinished.connect(lambda _, b=browser: self.check_credentials(b))
-        browser.loadFinished.connect(lambda _, i=self.tabs.count(), b=browser:
-                                     self.tabs.setTabText(i, b.page().title()))
+        browser.loadFinished.connect(lambda _, i=self.tabs.count()-1, b=browser:
+                                     self.tabs.setTabText(self.tabs.indexOf(b), b.page().title()))
         browser.urlChanged.connect(lambda new_url, b=browser: self.update_url_bar(new_url, b))
 
         i = self.tabs.addTab(browser, label)
@@ -891,12 +824,24 @@ class Browser(QMainWindow):
 
     def on_downloadRequested(self, download):
         options = QFileDialog.Options()
-        file_path, _ = QFileDialog.getSaveFileName(self, "Speichern unter", download.path(), options=options)
+        file_path, _ = QFileDialog.getSaveFileName(
+            self, 
+            "Speichern unter", 
+            download.path(), 
+            options=options
+        )
         if file_path:
             download.setPath(file_path)
             download.accept()
-            download.finished.connect(lambda: self.download_finished(download))
+            
+            # Download-Objekt in einer Instanzliste speichern,
+            # damit es nicht vom Garbage Collector entfernt wird.
+            self.active_downloads.append(download)
+            
             download.downloadProgress.connect(self.download_progress)
+            download.finished.connect(
+                lambda: self.download_finished(download)
+            )
 
     def download_progress(self, received, total):
         if total > 0:
@@ -907,6 +852,9 @@ class Browser(QMainWindow):
 
     def download_finished(self, download):
         self.status.showMessage(f"Download abgeschlossen: {download.path()}")
+        # Nach Abschluss aus der Liste entfernen
+        if download in self.active_downloads:
+            self.active_downloads.remove(download)
 
     # -------------- Favoriten -------------- #
     def add_favorite(self):
