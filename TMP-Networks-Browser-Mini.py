@@ -1104,7 +1104,7 @@ class Browser(QMainWindow):
 
         # Wenn es eine YouTube-URL ist, verwende yt-dlp statt <video>-Tags
         # (Abfrage kann man ausbauen: "youtube.com", "youtu.be", "youtube-nocookie.com", etc.)
-        if "youtube.com" in domain or "youtu.be" in domain or "pornhub.org" in domain:
+        if True:
             self.handle_youtube_via_yt_dlp(current_url)
             return
 
