@@ -53,7 +53,7 @@
    pip install -r requirements.txt
    ```
 
-   **Hinweis:** Stelle sicher, dass Deine `requirements.txt` **PyQt6** anstelle von **PyQt5** enthält:
+   **Hinweis:** `requirements.txt`
 
    ```text
    PyQt6>=6.0.0
