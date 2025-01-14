@@ -5,3 +5,4 @@ python-vlc
 python-whois
 appdirs
 whois
+m3u8
