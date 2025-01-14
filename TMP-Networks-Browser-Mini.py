@@ -28,23 +28,15 @@ from PyQt6.QtWebChannel import QWebChannel
 # AppDirs für plattformübergreifende Pfadverwaltung
 from appdirs import AppDirs
 
-# Initialisiere AppDirs
 dirs = AppDirs("TMPNetworksBrowserMini", "DeinName")
-
-# Bestimme den Pfad zur JSON-Datei im Application Support-Verzeichnis
 json_dir = dirs.user_data_dir
 json_path = os.path.join(json_dir, "favoriten_und_passwoerter.json")
-
-# Stelle sicher, dass das Verzeichnis existiert
 os.makedirs(json_dir, exist_ok=True)
-
-# Setze DATA_FILE auf den neuen Pfad
 DATA_FILE = json_path
 
 def get_emoji_font():
     """ 
-    Vereinfachtes Fallback: Liefert 'Arial' mit Größe 16 zurück,
-    um Probleme mit QFontDatabase zu vermeiden.
+    Vereinfachtes Fallback: Liefert z.B. 'Noto Color Emoji' mit Größe 16
     """
     return QFont("Noto Color Emoji", 16)
 
@@ -59,11 +51,7 @@ class WebChannelInterface(QObject):
 
 class VLCPlayerDialog(QDialog):
     """
-    Dialog zum Abspielen eines Videos mit VLC und Steuerelementen:
-    - Play/Pause, Stop
-    - Lauter/Leiser
-    - Download
-    - Positions-Slider (zum Spulen)
+    Dialog zum Abspielen eines Videos mit VLC und Steuerelementen.
     """
     def __init__(self, video_url, parent=None):
         super().__init__(parent)
@@ -71,31 +59,22 @@ class VLCPlayerDialog(QDialog):
         self.resize(800, 600)
         self.video_url = video_url
 
-        # Variable, um zu wissen, ob gerade per Slider gesprungen wird
-        self.is_seeking = False
+        self.is_seeking = False  # Zum Unterscheiden, ob gerade Slider bedient wird
 
-        # Hauptlayout
         layout = QVBoxLayout(self)
-
-        # -----------------------------------
-        # 1) Video-Frame
         self.videoframe = QFrame(self)
         self.videoframe.setFrameShape(QFrame.Shape.Box)
         self.videoframe.setLineWidth(2)
         layout.addWidget(self.videoframe)
 
-        # 2) Slider für die Position im Video
         self.position_slider = QSlider(Qt.Orientation.Horizontal)
-        self.position_slider.setRange(0, 1000)  # Start: Dummy-Wert
+        self.position_slider.setRange(0, 1000)
         self.position_slider.setValue(0)
         layout.addWidget(self.position_slider)
 
-        # Events für den Slider
         self.position_slider.sliderPressed.connect(self.slider_pressed)
         self.position_slider.sliderReleased.connect(self.slider_released)
 
-        # -----------------------------------
-        # 3) Steuer-Buttons (Play/Pause, Stop)
         playback_layout = QHBoxLayout()
         self.play_button = QPushButton("Play/Pause")
         self.play_button.clicked.connect(self.toggle_play)
@@ -104,15 +83,10 @@ class VLCPlayerDialog(QDialog):
         self.stop_button = QPushButton("Stop")
         self.stop_button.clicked.connect(self.stop_playback)
         playback_layout.addWidget(self.stop_button)
-
         layout.addLayout(playback_layout)
 
-        # -----------------------------------
-        # 4) Lautstärke und Download
         volume_layout = QHBoxLayout()
-
-        self.volume = 100  # Standard-Lautstärke
-        # Buttons: Leiser / Lauter
+        self.volume = 100
         self.vol_down_button = QPushButton("Leiser")
         self.vol_down_button.clicked.connect(self.volume_down)
         volume_layout.addWidget(self.vol_down_button)
@@ -121,31 +95,23 @@ class VLCPlayerDialog(QDialog):
         self.vol_up_button.clicked.connect(self.volume_up)
         volume_layout.addWidget(self.vol_up_button)
 
-        # Download-Button
         self.download_button = QPushButton("Download")
         self.download_button.clicked.connect(self.download_video)
         volume_layout.addWidget(self.download_button)
-
         layout.addLayout(volume_layout)
 
-        # -----------------------------------
-        # VLC-Setup
         self.instance = vlc.Instance()
         self.media_player = self.instance.media_player_new()
         media = self.instance.media_new(self.video_url)
         self.media_player.set_media(media)
         self.media_player.audio_set_volume(self.volume)
 
-        # Timer, um den Player zu aktualisieren (Position etc.)
         self.timer = QTimer(self)
-        self.timer.setInterval(200)  # alle 200 ms
+        self.timer.setInterval(200)
         self.timer.timeout.connect(self.update_frame)
         self.timer.start()
 
-        # Beim Öffnen direkt abspielen
         self.media_player.play()
-
-        # Widget für Video
         self.set_video_widget()
 
     def set_video_widget(self):
@@ -178,14 +144,17 @@ class VLCPlayerDialog(QDialog):
 
     def slider_released(self):
         self.is_seeking = False
-        new_position = self.position_slider.value()  # in ms
+        new_position = self.position_slider.value()
         self.media_player.set_time(new_position)
 
     def download_video(self):
-        save_path, _ = QFileDialog.getSaveFileName(self, "Video speichern unter",
-                                                   os.path.basename(self.video_url))
+        save_path, _ = QFileDialog.getSaveFileName(
+            self,
+            "Video speichern unter",
+            os.path.basename(self.video_url)
+        )
         if not save_path:
-            return  # Abbruch
+            return
 
         try:
             r = requests.get(self.video_url, stream=True)
@@ -213,7 +182,7 @@ class VLCPlayerDialog(QDialog):
 
     def update_frame(self):
         if not self.is_seeking:
-            current_time = self.media_player.get_time()  # in ms
+            current_time = self.media_player.get_time()
             total_length = self.media_player.get_length()
             if total_length > 0:
                 self.position_slider.setRange(0, total_length)
@@ -343,8 +312,7 @@ class CredentialsManagerDialog(QDialog):
     def refresh_list(self):
         self.list_widget.clear()
         for domain, creds in sorted(self.credentials.items()):
-            item_text = domain
-            item = QListWidgetItem(item_text)
+            item = QListWidgetItem(domain)
             self.list_widget.addItem(item)
 
 class EditFavoriteDialog(QDialog):
@@ -397,7 +365,6 @@ class FavoritesManagerDialog(QDialog):
             self.list_widget.addItem(item)
         layout.addWidget(self.list_widget)
 
-        # Buttons: Bearbeiten, Löschen
         btn_layout = QHBoxLayout()
         self.edit_btn = QPushButton("Bearbeiten")
         self.delete_btn = QPushButton("Löschen")
@@ -423,7 +390,7 @@ class FavoritesManagerDialog(QDialog):
         if len(lines) < 2:
             return
         old_title = lines[0]
-        old_url   = lines[1]
+        old_url = lines[1]
         
         edit_dlg = EditFavoriteDialog(self, old_title, old_url)
         if edit_dlg.exec() == QDialog.DialogCode.Accepted:
@@ -453,7 +420,7 @@ class FavoritesManagerDialog(QDialog):
         if len(lines) < 2:
             return
         fav_title = lines[0]
-        fav_url   = lines[1]
+        fav_url = lines[1]
         
         reply = QMessageBox.question(
             self,
@@ -498,7 +465,6 @@ class HistoryDialog(QDialog):
             self.list_widget.addItem(item)
         layout.addWidget(self.list_widget)
 
-        # Navigation beim Doppelklick
         self.list_widget.itemDoubleClicked.connect(self.navigate_from_history)
 
         close_btn = QPushButton("Schließen")
@@ -525,19 +491,16 @@ class WhoisDialog(QDialog):
         
         layout = QVBoxLayout()
         
-        # Scrollbereich für WHOIS-Daten
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         content = QWidget()
         scroll_layout = QVBoxLayout(content)
         
-        # WHOIS Informationen
         whois_label = QLabel("WHOIS Daten:")
         whois_text = QTextEdit()
         whois_text.setReadOnly(True)
         whois_text.setText(domain_info)
         
-        # IP Informationen
         ip_label = QLabel("IP Informationen:")
         ip_text = QTextEdit()
         ip_text.setReadOnly(True)
@@ -551,7 +514,6 @@ class WhoisDialog(QDialog):
         
         layout.addWidget(scroll)
         
-        # Schließen-Button
         close_btn = QPushButton("Schließen")
         close_btn.clicked.connect(self.accept)
         layout.addWidget(close_btn)
@@ -564,12 +526,10 @@ class Browser(QMainWindow):
         self.setWindowTitle("TMP-Networks Browser (PyQt6)")
         self.setGeometry(100, 100, 1200, 800)
         self.load_data()
-
         if "history" not in self.data:
             self.data["history"] = []
 
-        # Liste zur Speicherung aktiver Downloads, um Garbage Collection zu verhindern
-        self.active_downloads = []
+        self.active_downloads = []  # Um Downloads im Speicher zu halten
 
         self.tabs = QTabWidget()
         self.tabs.setDocumentMode(True)
@@ -587,8 +547,7 @@ class Browser(QMainWindow):
         add_fav_action.triggered.connect(self.add_favorite)
         self.fav_menu.addAction(add_fav_action)
         self.fav_menu.addSeparator()
-        
-        # Menüpunkt "Favoriten verwalten"
+
         manage_fav_action = QAction("Favoriten verwalten", self)
         manage_fav_action.triggered.connect(self.manage_favorites)
         self.fav_menu.addAction(manage_fav_action)
@@ -620,10 +579,8 @@ class Browser(QMainWindow):
         navigation_bar.setIconSize(QSize(24, 24))
         self.addToolBar(navigation_bar)
 
-        # Emoji-Schriftart (vereinfachter Fallback)
         emoji_font = get_emoji_font()
 
-        # Buttons
         back_button = QAction("👈", self)
         back_button.setToolTip("Zurück")
         back_button.setFont(emoji_font)
@@ -654,7 +611,6 @@ class Browser(QMainWindow):
         home_button.triggered.connect(self.navigate_home)
         navigation_bar.addAction(home_button)
 
-        # URL-Leiste
         self.url_bar = QLineEdit()
         self.url_bar.returnPressed.connect(self.navigate_to_url)
         navigation_bar.addWidget(self.url_bar)
@@ -674,9 +630,8 @@ class Browser(QMainWindow):
         video_scan_button.setFont(emoji_font)
         video_scan_button.triggered.connect(self.scan_and_play_videos)
         navigation_bar.addAction(video_scan_button)
-        
-        # Hinzufügen des WHOIS-Buttons
-        whois_button = QAction("ℹ️", self)  # Sie können ein passendes Icon wählen
+
+        whois_button = QAction("ℹ️", self)
         whois_button.setToolTip("WHOIS Informationen anzeigen")
         whois_button.setFont(emoji_font)
         whois_button.triggered.connect(self.show_whois_info)
@@ -685,58 +640,9 @@ class Browser(QMainWindow):
         self.status = QStatusBar()
         self.setStatusBar(self.status)
 
-        # Start-Tab
+        # Erster Tab
         self.add_new_tab(QUrl('https://www.google.com'), 'Startseite')
 
-    # --------------------------------------------------
-    #  HLS PARSING: Um .m3u8 zu analysieren und höchste Auflösung zu wählen
-    # --------------------------------------------------
-    def parse_m3u8_for_highest_variant(self, manifest_url):
-        """
-        Lädt das (Top-Level-)HLS-Manifest von manifest_url.
-        Sucht #EXT-X-STREAM-INF-Einträge samt RESOLUTION=WxH
-        und gibt die Sub-Playlist-URL mit der höchsten Auflösung zurück.
-        
-        Falls nichts gefunden wird, liefern wir einfach manifest_url zurück.
-        """
-        try:
-            r = requests.get(manifest_url, timeout=5)
-            r.raise_for_status()
-        except requests.RequestException as e:
-            print("Fehler beim Laden des Manifests:", e)
-            return manifest_url
-
-        lines = r.text.splitlines()
-        best_url = None
-        best_resolution = 0  # wir speichern z. B. w*h
-
-        for i, line in enumerate(lines):
-            if line.strip().startswith('#EXT-X-STREAM-INF:'):
-                # Bsp: #EXT-X-STREAM-INF:BANDWIDTH=...,RESOLUTION=1280x720, ...
-                match = re.search(r'RESOLUTION\s*=\s*(\d+)x(\d+)', line, re.IGNORECASE)
-                if match:
-                    w = int(match.group(1))
-                    h = int(match.group(2))
-                    resolution = w * h
-                    # Nächste Zeile = URL (Sub-Manifest)
-                    if i+1 < len(lines):
-                        sub_url = lines[i+1].strip()
-                        # Falls relativer Pfad => absolute URL bauen
-                        if not sub_url.startswith('http'):
-                            sub_url = urljoin(manifest_url, sub_url)
-
-                        if resolution > best_resolution:
-                            best_resolution = resolution
-                            best_url = sub_url
-
-        # Falls wir was gefunden haben, nimm den "besten" Sub-Manifest-Link
-        if best_url:
-            return best_url
-
-        # Sonst nimm einfach das Original
-        return manifest_url
-
-    # --------------------------------------------------
     def load_data(self):
         if os.path.exists(DATA_FILE):
             try:
@@ -750,7 +656,6 @@ class Browser(QMainWindow):
 
     def save_data(self):
         try:
-            # Stellen Sie sicher, dass alle datetime-Objekte in Strings umgewandelt werden
             serializable_data = self.make_serializable(self.data)
             with open(DATA_FILE, 'w', encoding='utf-8') as f:
                 json.dump(serializable_data, f, indent=4, ensure_ascii=False)
@@ -758,9 +663,6 @@ class Browser(QMainWindow):
             QMessageBox.critical(self, "Fehler", f"Beim Speichern der Daten ist ein Fehler aufgetreten:\n{e}")
 
     def make_serializable(self, obj):
-        """
-        Rekursive Funktion zur Umwandlung von datetime-Objekten in Strings.
-        """
         if isinstance(obj, dict):
             return {k: self.make_serializable(v) for k, v in obj.items()}
         elif isinstance(obj, list):
@@ -777,8 +679,8 @@ class Browser(QMainWindow):
         self.save_data()
 
     def add_new_tab(self, qurl=None, label="Neue Seite"):
-        if qurl is None or qurl == '':
-            qurl = QUrl('https://www.google.com')
+        if not qurl:
+            qurl = QUrl("https://www.google.com")
         browser = CustomWebEngineView(self)
         browser.setUrl(qurl)
         browser.page().profile().downloadRequested.connect(self.on_downloadRequested)
@@ -786,7 +688,6 @@ class Browser(QMainWindow):
         browser.loadFinished.connect(lambda _, i=self.tabs.count()-1, b=browser:
                                      self.tabs.setTabText(self.tabs.indexOf(b), b.page().title()))
         browser.urlChanged.connect(lambda new_url, b=browser: self.update_url_bar(new_url, b))
-
         i = self.tabs.addTab(browser, label)
         self.tabs.setCurrentIndex(i)
 
@@ -798,7 +699,6 @@ class Browser(QMainWindow):
     def update_url_bar(self, qurl=None, browser=None):
         if browser != self.tabs.currentWidget():
             return
-
         if qurl is None:
             qurl = self.tabs.currentWidget().url()
         self.url_bar.setText(qurl.toString())
@@ -827,31 +727,20 @@ class Browser(QMainWindow):
         self.tabs.currentWidget().setUrl(q)
 
     def on_downloadRequested(self, download):
-        """
-        In PyQt6 / Qt6 gibt es kein .path-Attribut mehr für QWebEngineDownloadRequest.
-        Stattdessen verwendet man setDownloadDirectory() und setDownloadFileName().
-        """
-        # Zeige "Speichern unter" Dialog:
         file_path, _ = QFileDialog.getSaveFileName(
             self,
             "Speichern unter",
-            download.downloadFileName() or "",  # Falls None -> ""
+            download.downloadFileName() or "",
             "Alle Dateien (*)"
         )
-
         if file_path:
-            # Split Pfad in Verzeichnis + Dateiname
             directory = os.path.dirname(file_path)
             filename_only = os.path.basename(file_path)
-
-            # Download konfigurieren
             download.setDownloadDirectory(directory)
             download.setDownloadFileName(filename_only)
             download.accept()
 
-            # Download am Leben halten
             self.active_downloads.append(download)
-
             download.downloadProgress.connect(self.download_progress)
             download.finished.connect(lambda: self.download_finished(download))
 
@@ -863,7 +752,6 @@ class Browser(QMainWindow):
             self.status.showMessage("Download läuft...")
 
     def download_finished(self, download):
-        # Pfad aus downloadDirectory + downloadFileName zusammensetzen:
         final_file = os.path.join(download.downloadDirectory(), download.downloadFileName())
         self.status.showMessage(f"Download abgeschlossen: {final_file}")
         if download in self.active_downloads:
@@ -882,19 +770,47 @@ class Browser(QMainWindow):
         QMessageBox.information(self, "Erfolg", "Favorit hinzugefügt.")
 
     def update_favorites_menu(self):
+        """Aktualisiert das 'Favoriten'-Menü, damit man jeden Eintrag öffnen oder löschen kann."""
         actions = self.fav_menu.actions()
-        # Ab Index 2 entfernen (0=Favorit hinzufügen, 1=Separator)
-        while len(actions) > 2:
+        # Die ersten Einträge: 0=Favorit hinzufügen, 1=Separator, 2=Favoriten verwalten
+        # Also entfernen wir alles danach
+        while len(actions) > 3:
             self.fav_menu.removeAction(actions[-1])
             actions = self.fav_menu.actions()
 
+        # Für jeden Favoriten ein Untermenü anlegen
         for fav in sorted(self.data["favorites"], key=lambda x: x["title"]):
-            action = QAction(fav["title"], self)
-            action.setData(fav["url"])
-            action.triggered.connect(self.navigate_to_favorite)
-            self.fav_menu.addAction(action)
+            submenu = QMenu(fav["title"], self)
+
+            open_action = QAction("Öffnen", self)
+            # Speichere URL in open_action.data
+            open_action.setData(fav["url"])
+            open_action.triggered.connect(self.navigate_to_favorite)
+            submenu.addAction(open_action)
+
+            delete_action = QAction("Löschen ❌", self)
+            # Per lambda das jeweilige Favoriten-Dict übergeben
+            delete_action.triggered.connect(lambda checked, f=fav: self.delete_favorite_directly(f))
+            submenu.addAction(delete_action)
+
+            self.fav_menu.addMenu(submenu)
+
+    def delete_favorite_directly(self, fav):
+        reply = QMessageBox.question(
+            self,
+            "Löschen bestätigen",
+            f"Sollen der Favorit '{fav['title']}' wirklich gelöscht werden?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No
+        )
+        if reply == QMessageBox.StandardButton.Yes:
+            self.data["favorites"] = [x for x in self.data["favorites"] if x != fav]
+            self.save_data()
+            self.update_favorites_menu()
+            QMessageBox.information(self, "Erfolg", f"Favorit '{fav['title']}' gelöscht.")
 
     def navigate_to_favorite(self):
+        """Öffnet den Favoriten im aktuellen Tab."""
         action = self.sender()
         if action:
             url = action.data()
@@ -1066,16 +982,8 @@ class Browser(QMainWindow):
         else:
             QMessageBox.information(self, "Info", "Keine geeigneten Eingabefelder gefunden.")
 
-    # -------------- Video-Scan (mit bester Qualität, inkl. HLS) -------------- #
+    # -------------- Videos scannen & abspielen -------------- #
     def scan_and_play_videos(self):
-        """
-        1) Scannt die aktuelle Seite nach <video>-Elementen.
-        2) Für jedes <source> werten wir das 'label' oder die URL aus
-           - Bei .m3u8 parsen wir das Manifest, um die höchste Auflösung zu finden.
-           - Bei .mp4 oder Ähnlichem suchen wir per Regex nach "(\d+)p" etc.
-        3) Wählen pro <video> die (vermeintlich) beste URL aus.
-        4) Bieten dem Nutzer an, das Video in VLC zu starten.
-        """
         js_code = r"""
         (function() {
             var videos = document.getElementsByTagName('video');
@@ -1089,17 +997,14 @@ class Browser(QMainWindow):
                 for (var j = 0; j < sourceTags.length; j++) {
                     var src = sourceTags[j].src;
                     
-                    // label- oder data-res-Attribute
                     var labelAttr = sourceTags[j].getAttribute('label') ||
                                     sourceTags[j].getAttribute('data-res') || "";
                     
                     var foundQuality = 0;
-                    // Versuche, z.B. "1080p" im label zu finden
                     var matchLabel = labelAttr.match(/(\d+)p/);
                     if (matchLabel) {
                         foundQuality = parseInt(matchLabel[1], 10);
                     } else {
-                        // Versuch in der URL
                         var matchURL = src.match(/(\d+)p/);
                         if (matchURL) {
                             foundQuality = parseInt(matchURL[1], 10);
@@ -1115,7 +1020,6 @@ class Browser(QMainWindow):
                 if (bestSrc) {
                     chosenSources.push(bestSrc);
                 } else {
-                    // Fallback: currentSrc oder videos[i].src
                     var fallback = videos[i].currentSrc || videos[i].src;
                     if (fallback) {
                         chosenSources.push(fallback);
@@ -1134,11 +1038,9 @@ class Browser(QMainWindow):
             QMessageBox.information(self, "Info", "Keine Videoelemente auf dieser Seite gefunden.")
             return
 
-        # NEUER SCHRITT: .m3u8 parsen
         final_urls = []
         for vs in video_sources:
             if vs.endswith('.m3u8'):
-                # Manifest parsen, um Highest Variant zu finden
                 best_variant = self.parse_m3u8_for_highest_variant(vs)
                 final_urls.append(best_variant)
             else:
@@ -1167,7 +1069,6 @@ class Browser(QMainWindow):
             layout.addLayout(btn_layout)
 
             dlg.setLayout(layout)
-
             play_btn.clicked.connect(lambda: self.play_selected_video(list_widget, dlg))
             cancel_btn.clicked.connect(dlg.reject)
 
@@ -1186,29 +1087,24 @@ class Browser(QMainWindow):
         dlg = VLCPlayerDialog(video_url, self)
         dlg.exec()
 
-    # -------------- WHOIS Funktion -------------- #
     def show_whois_info(self):
         current_url = self.tabs.currentWidget().url().toString()
         domain = QUrl(current_url).host()
-        
         if not domain:
             QMessageBox.warning(self, "Warnung", "Keine gültige Domain gefunden.")
             return
         
         try:
-            # Ermitteln der IP-Adresse
             ip_address = socket.gethostbyname(domain)
         except socket.gaierror:
             QMessageBox.warning(self, "Warnung", f"IP-Adresse für {domain} konnte nicht ermittelt werden.")
             ip_address = "Nicht verfügbar"
         
         try:
-            # WHOIS-Abfrage
             w = whois.whois(domain)
             if hasattr(w, 'text') and w.text:
                 whois_info = w.text
             else:
-                # Manuelle Formatierung der WHOIS-Daten
                 whois_info = ""
                 for key, value in w.items():
                     if isinstance(value, list):
@@ -1220,10 +1116,7 @@ class Browser(QMainWindow):
             QMessageBox.warning(self, "Warnung", f"WHOIS-Abfrage fehlgeschlagen: {e}")
             whois_info = "Keine WHOIS-Informationen verfügbar."
         
-        # IP-Informationen (hier nur die IP-Adresse)
         ip_info = f"IP-Adresse: {ip_address}"
-        
-        # Anzeige im Dialog
         dlg = WhoisDialog(whois_info, ip_info, self)
         dlg.exec()
 
