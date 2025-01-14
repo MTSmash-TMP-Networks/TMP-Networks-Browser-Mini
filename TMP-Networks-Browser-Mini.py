@@ -23,7 +23,7 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtGui import QAction, QFont
 from PyQt6.QtCore import QUrl, QSize, QObject, pyqtSlot, Qt, QTimer
-from PyQt6.QtWebEngineWidgets import QWebEngineView
+from PyQt6.QtWebEngineWidgets import QWebEngineView, QWebEngineScript, QWebEnginePage
 from PyQt6.QtWebChannel import QWebChannel
 
 # AppDirs für plattformübergreifende Pfadverwaltung
@@ -31,6 +31,9 @@ from appdirs import AppDirs
 
 # NEU/GEÄNDERT: yt-dlp importieren
 import yt_dlp  # <--- Achte darauf, dass du yt-dlp installiert hast
+
+# NEU/GEÄNDERT: Import für ClipboardHandler
+from PyQt6.QtGui import QClipboard
 
 dirs = AppDirs("TMPNetworksBrowserMini", "DeinName")
 json_dir = dirs.user_data_dir
@@ -43,6 +46,21 @@ def get_emoji_font():
     Vereinfachtes Fallback: Liefert z.B. 'Noto Color Emoji' mit Größe 16
     """
     return QFont("Noto Color Emoji", 16)
+
+# NEU: ClipboardHandler Klasse
+class ClipboardHandler(QObject):
+    def __init__(self):
+        super().__init__()
+
+    @pyqtSlot(str)
+    def copy_to_clipboard(self, text):
+        clipboard = QApplication.clipboard()
+        clipboard.setText(text)
+
+    @pyqtSlot(result=str)
+    def read_from_clipboard(self):
+        clipboard = QApplication.clipboard()
+        return clipboard.text()
 
 class WebChannelInterface(QObject):
     def __init__(self, browser):
@@ -544,6 +562,11 @@ class Browser(QMainWindow):
 
         menu_bar = self.menuBar()
 
+        # NEU: Einrichten der WebChannel und ClipboardHandler
+        self.clipboard_handler = ClipboardHandler()
+        self.web_channel = QWebChannel()
+        self.web_channel.registerObject('clipboardHandler', self.clipboard_handler)
+
         # Favoriten-Menü
         self.fav_menu = QMenu("Favoriten", self)
         menu_bar.addMenu(self.fav_menu)
@@ -687,6 +710,32 @@ class Browser(QMainWindow):
             qurl = QUrl("https://www.google.com")
         browser = CustomWebEngineView(self)
         browser.setUrl(qurl)
+
+        # NEU: Setzen des WebChannels für die Seite
+        browser.page().setWebChannel(self.web_channel)
+
+        # NEU: Inject JavaScript zur Überschreibung von navigator.clipboard.writeText
+        script = QWebEngineScript()
+        script.setSourceCode("""
+            (function() {
+                if (typeof clipboardHandler !== 'undefined') {
+                    navigator.clipboard = {
+                        writeText: function(text) {
+                            clipboardHandler.copy_to_clipboard(text);
+                            return Promise.resolve();
+                        },
+                        readText: function() {
+                            return clipboardHandler.read_from_clipboard();
+                        }
+                    };
+                }
+            })();
+        """)
+        script.setInjectionPoint(QWebEngineScript.InjectionPoint.DocumentStart)
+        script.setWorldId(QWebEngineScript.ScriptWorldId.MainWorld)
+        script.setRunsOnSubFrames(True)
+        browser.page().scripts().insert(script)
+
         browser.page().profile().downloadRequested.connect(self.on_downloadRequested)
         browser.loadFinished.connect(lambda _, b=browser: self.check_credentials(b))
         browser.loadFinished.connect(lambda _, i=self.tabs.count()-1, b=browser:
@@ -1071,7 +1120,7 @@ class Browser(QMainWindow):
 
         # Wenn es eine YouTube-URL ist, verwende yt-dlp statt <video>-Tags
         # (Abfrage kann man ausbauen: "youtube.com", "youtu.be", "youtube-nocookie.com", etc.)
-        if "youtube.com" in domain or "youtu.be" or "pornhub.org" in domain:
+        if "youtube.com" in domain or "youtu.be" in domain or "pornhub.org" in domain:
             self.handle_youtube_via_yt_dlp(current_url)
             return
 
@@ -1282,13 +1331,13 @@ class Browser(QMainWindow):
         if not domain:
             QMessageBox.warning(self, "Warnung", "Keine gültige Domain gefunden.")
             return
-        
+
         try:
             ip_address = socket.gethostbyname(domain)
         except socket.gaierror:
             QMessageBox.warning(self, "Warnung", f"IP-Adresse für {domain} konnte nicht ermittelt werden.")
             ip_address = "Nicht verfügbar"
-        
+
         try:
             w = whois.whois(domain)
             if hasattr(w, 'text') and w.text:
@@ -1304,7 +1353,7 @@ class Browser(QMainWindow):
         except Exception as e:
             QMessageBox.warning(self, "Warnung", f"WHOIS-Abfrage fehlgeschlagen: {e}")
             whois_info = "Keine WHOIS-Informationen verfügbar."
-        
+
         ip_info = f"IP-Adresse: {ip_address}"
         dlg = WhoisDialog(whois_info, ip_info, self)
         dlg.exec()
@@ -1313,6 +1362,895 @@ class Browser(QMainWindow):
         if isinstance(value, datetime):
             return value.strftime('%Y-%m-%d %H:%M:%S')
         return str(value)
+
+    # -------------- NEU/GEÄNDERT: Extra Methode für YouTube -------------- #
+    def handle_youtube_via_yt_dlp(self, youtube_url):
+        """
+        Fragt via yt-dlp die verfügbaren Streams (Formate) für das gegebene YouTube-Video ab
+        und öffnet sie dann wahlweise im VLC-Dialog.
+        """
+        ydl_opts = {
+            'quiet': True,
+            'no_warnings': True,
+            'format': 'best'  # oder 'bestvideo+bestaudio/best' je nach Bedarf
+        }
+        try:
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                info = ydl.extract_info(youtube_url, download=False)
+                formats = info.get('formats', [])
+                if not formats:
+                    QMessageBox.warning(self, "Fehler", "Keine abspielbaren Formate gefunden.")
+                    return
+
+                # Alle Formate auflisten
+                variant_list = []
+                for f in formats:
+                    # Resolution kann z.B. "1920x1080" sein oder None
+                    resolution = f.get('resolution') or f"{f.get('width','?')}x{f.get('height','?')}"
+                    label = f"{resolution} ({f.get('ext','?')}, {f.get('format_id','?')}, {f.get('fps','?')}fps)"
+                    direct_url = f.get('url')
+                    if direct_url:
+                        variant_list.append((label, direct_url))
+
+                if not variant_list:
+                    QMessageBox.warning(self, "Fehler", "Keine abspielbaren Direct-URLs gefunden.")
+                    return
+
+                # Wenn es nur ein Format gibt, direkt abspielen:
+                if len(variant_list) == 1:
+                    self.play_video_in_vlc(variant_list[0][1])
+                    return
+
+                # Sonst: Dialog zur Auswahl des Formats
+                dlg = QDialog(self)
+                dlg.setWindowTitle("Stream auswählen")
+                dlg.resize(400, 300)
+                layout = QVBoxLayout(dlg)
+
+                info_label = QLabel(f"Formate für: {info.get('title', youtube_url)}")
+                layout.addWidget(info_label)
+
+                list_widget = QListWidget()
+                for label_text, url in variant_list:
+                    item = QListWidgetItem(label_text)
+                    item.setData(Qt.ItemDataRole.UserRole, url)
+                    list_widget.addItem(item)
+                layout.addWidget(list_widget)
+
+                btn_layout = QHBoxLayout()
+                ok_btn = QPushButton("Abspielen")
+                cancel_btn = QPushButton("Abbrechen")
+                btn_layout.addWidget(ok_btn)
+                btn_layout.addWidget(cancel_btn)
+                layout.addLayout(btn_layout)
+
+                def on_ok():
+                    item = list_widget.currentItem()
+                    if item:
+                        chosen_url = item.data(Qt.ItemDataRole.UserRole)
+                        self.play_video_in_vlc(chosen_url)
+                    dlg.accept()
+
+                def on_cancel():
+                    dlg.reject()
+
+                ok_btn.clicked.connect(on_ok)
+                cancel_btn.clicked.connect(on_cancel)
+
+                dlg.exec()
+
+        except Exception as e:
+            QMessageBox.warning(self, "YouTube-Fehler", f"Fehler beim Abrufen der Streams:\n{e}")
+
+    # -------------- NEU/GEÄNDERT: Scan & Play-Methode anpassen -------------- #
+    def scan_and_play_videos(self):
+        current_url = self.tabs.currentWidget().url().toString()
+        domain = QUrl(current_url).host().lower()
+
+        # Wenn es eine YouTube-URL ist, verwende yt-dlp statt <video>-Tags
+        # (Abfrage kann man ausbauen: "youtube.com", "youtu.be", "youtube-nocookie.com", etc.)
+        if "youtube.com" in domain or "youtu.be" in domain or "pornhub.org" in domain:
+            self.handle_youtube_via_yt_dlp(current_url)
+            return
+
+        # --- Bestehender Code für normale <video>-Elemente --- #
+        js_code = r"""
+        (function() {
+            var videos = document.getElementsByTagName('video');
+            var chosenSources = [];
+            
+            for (var i = 0; i < videos.length; i++) {
+                var bestSrc = null;
+                var bestQuality = 0;
+                
+                var sourceTags = videos[i].getElementsByTagName('source');
+                for (var j = 0; j < sourceTags.length; j++) {
+                    var src = sourceTags[j].src;
+                    
+                    var labelAttr = sourceTags[j].getAttribute('label') ||
+                                    sourceTags[j].getAttribute('data-res') || "";
+                    
+                    var foundQuality = 0;
+                    var matchLabel = labelAttr.match(/(\d+)p/);
+                    if (matchLabel) {
+                        foundQuality = parseInt(matchLabel[1], 10);
+                    } else {
+                        var matchURL = src.match(/(\d+)p/);
+                        if (matchURL) {
+                            foundQuality = parseInt(matchURL[1], 10);
+                        }
+                    }
+                    
+                    if (foundQuality > bestQuality) {
+                        bestQuality = foundQuality;
+                        bestSrc = src;
+                    }
+                }
+                
+                if (bestSrc) {
+                    chosenSources.push(bestSrc);
+                } else {
+                    var fallback = videos[i].currentSrc || videos[i].src;
+                    if (fallback) {
+                        chosenSources.push(fallback);
+                    }
+                }
+            }
+            
+            return chosenSources;
+        })();
+        """
+        page = self.tabs.currentWidget().page()
+        page.runJavaScript(js_code, self.handle_video_scan_result)
+
+    def handle_video_scan_result(self, video_sources):
+        if not video_sources:
+            QMessageBox.information(self, "Info", "Keine Videoelemente auf dieser Seite gefunden.")
+            return
+
+        final_urls = []
+        for vs in video_sources:
+            # Prüfen, ob es eine M3U8-Datei ist
+            if vs.endswith('.m3u8'):
+                # Hole ALLE Varianten zur Auswahl
+                variants = self.parse_m3u8_for_all_variants(vs)
+
+                if len(variants) == 1:
+                    # Nur 1 Variante -> direkt nehmen
+                    final_urls.append(variants[0][1])
+                else:
+                    chosen_variant = self.ask_user_for_m3u8_variant(variants)
+                    if chosen_variant:
+                        final_urls.append(chosen_variant)
+            else:
+                # Normale Video-URL
+                final_urls.append(vs)
+
+        if not final_urls:
+            return
+
+        if len(final_urls) == 1:
+            # Nur 1 finales Video
+            self.play_video_in_vlc(final_urls[0])
+        else:
+            # Mehrere Videos -> Liste anzeigen
+            dlg = QDialog(self)
+            dlg.setWindowTitle("Videos auswählen")
+            dlg.resize(400, 300)
+            layout = QVBoxLayout()
+
+            list_widget = QListWidget()
+            for src in final_urls:
+                item = QListWidgetItem(src)
+                list_widget.addItem(item)
+            layout.addWidget(list_widget)
+
+            btn_layout = QHBoxLayout()
+            play_btn = QPushButton("Abspielen")
+            cancel_btn = QPushButton("Abbrechen")
+            btn_layout.addWidget(play_btn)
+            btn_layout.addWidget(cancel_btn)
+            layout.addLayout(btn_layout)
+
+            dlg.setLayout(layout)
+
+            def on_play_clicked():
+                selected_item = list_widget.currentItem()
+                if selected_item:
+                    video_url = selected_item.text()
+                    self.play_video_in_vlc(video_url)
+                    dlg.accept()
+                else:
+                    QMessageBox.warning(self, "Warnung", "Bitte wählen Sie ein Video aus.")
+
+            play_btn.clicked.connect(on_play_clicked)
+            cancel_btn.clicked.connect(dlg.reject)
+
+            dlg.exec()
+
+    def play_video_in_vlc(self, video_url):
+        dlg = VLCPlayerDialog(video_url, self)
+        dlg.exec()
+
+    def parse_m3u8_for_all_variants(self, m3u8_url):
+        """
+        Lädt ein M3U8 (Master) Manifest herunter und gibt
+        eine Liste aller (label, url)-Paare zurück.
+        """
+        from urllib.parse import urljoin
+
+        variants = []
+
+        try:
+            response = requests.get(m3u8_url)
+            response.raise_for_status()
+
+            master_m3u8 = m3u8.loads(response.text)
+
+            if master_m3u8.is_variant:
+                for playlist in master_m3u8.playlists:
+                    res = playlist.stream_info.resolution
+                    bw = playlist.stream_info.bandwidth or 0
+                    if res:
+                        w, h = res
+                        label = f"{w}x{h} ({bw} bps)"
+                    else:
+                        label = f"{bw} bps"
+
+                    variant_url = urljoin(m3u8_url, playlist.uri)
+                    variants.append((label, variant_url))
+            else:
+                # Keine Master-Playlist -> nur 1 Variante
+                variants.append(("(Single)", m3u8_url))
+
+        except Exception as e:
+            print(f"Fehler beim Parsen der M3U8: {e}")
+            variants.append(("(Error)", m3u8_url))
+
+        return variants
+
+    def ask_user_for_m3u8_variant(self, variants):
+        """
+        Öffnet ein kleines Dialogfenster mit einer Liste (QListWidget),
+        in der man eine Auflösung/Bandbreite auswählen kann.
+        Gibt die ausgewählte URL zurück oder None, falls Abbruch.
+        """
+        dlg = QDialog(self)
+        dlg.setWindowTitle("Stream auswählen")
+        dlg.resize(300, 200)
+        layout = QVBoxLayout(dlg)
+
+        info_label = QLabel("Verfügbare Qualitätsstufen:")
+        layout.addWidget(info_label)
+
+        list_widget = QListWidget()
+        for label_text, url in variants:
+            item = QListWidgetItem(label_text)
+            item.setData(Qt.ItemDataRole.UserRole, url)
+            list_widget.addItem(item)
+        layout.addWidget(list_widget)
+
+        btn_layout = QHBoxLayout()
+        ok_btn = QPushButton("OK")
+        cancel_btn = QPushButton("Abbrechen")
+        btn_layout.addWidget(ok_btn)
+        btn_layout.addWidget(cancel_btn)
+        layout.addLayout(btn_layout)
+
+        chosen_url = [None]  # mutable Container zum "Rückgeben"
+
+        def on_ok():
+            item = list_widget.currentItem()
+            if item:
+                chosen_url[0] = item.data(Qt.ItemDataRole.UserRole)
+            dlg.accept()
+
+        def on_cancel():
+            dlg.reject()
+
+        ok_btn.clicked.connect(on_ok)
+        cancel_btn.clicked.connect(on_cancel)
+
+        dlg.exec()
+        return chosen_url[0]
+
+    def show_whois_info(self):
+        current_url = self.tabs.currentWidget().url().toString()
+        domain = QUrl(current_url).host()
+        if not domain:
+            QMessageBox.warning(self, "Warnung", "Keine gültige Domain gefunden.")
+            return
+
+        try:
+            ip_address = socket.gethostbyname(domain)
+        except socket.gaierror:
+            QMessageBox.warning(self, "Warnung", f"IP-Adresse für {domain} konnte nicht ermittelt werden.")
+            ip_address = "Nicht verfügbar"
+
+        try:
+            w = whois.whois(domain)
+            if hasattr(w, 'text') and w.text:
+                whois_info = w.text
+            else:
+                whois_info = ""
+                for key, value in w.items():
+                    if isinstance(value, list):
+                        value = ', '.join([self.convert_datetime(v) for v in value])
+                    else:
+                        value = self.convert_datetime(value)
+                    whois_info += f"{key}: {value}\n"
+        except Exception as e:
+            QMessageBox.warning(self, "Warnung", f"WHOIS-Abfrage fehlgeschlagen: {e}")
+            whois_info = "Keine WHOIS-Informationen verfügbar."
+
+        ip_info = f"IP-Adresse: {ip_address}"
+        dlg = WhoisDialog(whois_info, ip_info, self)
+        dlg.exec()
+
+    def convert_datetime(self, value):
+        if isinstance(value, datetime):
+            return value.strftime('%Y-%m-%d %H:%M:%S')
+        return str(value)
+
+    # -------------- NEU/GEÄNDERT: Extra Methode für YouTube -------------- #
+    def handle_youtube_via_yt_dlp(self, youtube_url):
+        """
+        Fragt via yt-dlp die verfügbaren Streams (Formate) für das gegebene YouTube-Video ab
+        und öffnet sie dann wahlweise im VLC-Dialog.
+        """
+        ydl_opts = {
+            'quiet': True,
+            'no_warnings': True,
+            'format': 'best'  # oder 'bestvideo+bestaudio/best' je nach Bedarf
+        }
+        try:
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                info = ydl.extract_info(youtube_url, download=False)
+                formats = info.get('formats', [])
+                if not formats:
+                    QMessageBox.warning(self, "Fehler", "Keine abspielbaren Formate gefunden.")
+                    return
+
+                # Alle Formate auflisten
+                variant_list = []
+                for f in formats:
+                    # Resolution kann z.B. "1920x1080" sein oder None
+                    resolution = f.get('resolution') or f"{f.get('width','?')}x{f.get('height','?')}"
+                    label = f"{resolution} ({f.get('ext','?')}, {f.get('format_id','?')}, {f.get('fps','?')}fps)"
+                    direct_url = f.get('url')
+                    if direct_url:
+                        variant_list.append((label, direct_url))
+
+                if not variant_list:
+                    QMessageBox.warning(self, "Fehler", "Keine abspielbaren Direct-URLs gefunden.")
+                    return
+
+                # Wenn es nur ein Format gibt, direkt abspielen:
+                if len(variant_list) == 1:
+                    self.play_video_in_vlc(variant_list[0][1])
+                    return
+
+                # Sonst: Dialog zur Auswahl des Formats
+                dlg = QDialog(self)
+                dlg.setWindowTitle("Stream auswählen")
+                dlg.resize(400, 300)
+                layout = QVBoxLayout(dlg)
+
+                info_label = QLabel(f"Formate für: {info.get('title', youtube_url)}")
+                layout.addWidget(info_label)
+
+                list_widget = QListWidget()
+                for label_text, url in variant_list:
+                    item = QListWidgetItem(label_text)
+                    item.setData(Qt.ItemDataRole.UserRole, url)
+                    list_widget.addItem(item)
+                layout.addWidget(list_widget)
+
+                btn_layout = QHBoxLayout()
+                ok_btn = QPushButton("Abspielen")
+                cancel_btn = QPushButton("Abbrechen")
+                btn_layout.addWidget(ok_btn)
+                btn_layout.addWidget(cancel_btn)
+                layout.addLayout(btn_layout)
+
+                def on_ok():
+                    item = list_widget.currentItem()
+                    if item:
+                        chosen_url = item.data(Qt.ItemDataRole.UserRole)
+                        self.play_video_in_vlc(chosen_url)
+                    dlg.accept()
+
+                def on_cancel():
+                    dlg.reject()
+
+                ok_btn.clicked.connect(on_ok)
+                cancel_btn.clicked.connect(on_cancel)
+
+                dlg.exec()
+
+        except Exception as e:
+            QMessageBox.warning(self, "YouTube-Fehler", f"Fehler beim Abrufen der Streams:\n{e}")
+
+    # -------------- NEU/GEÄNDERT: Scan & Play-Methode anpassen -------------- #
+    def scan_and_play_videos(self):
+        current_url = self.tabs.currentWidget().url().toString()
+        domain = QUrl(current_url).host().lower()
+
+        # Wenn es eine YouTube-URL ist, verwende yt-dlp statt <video>-Tags
+        # (Abfrage kann man ausbauen: "youtube.com", "youtu.be", "youtube-nocookie.com", etc.)
+        if "youtube.com" in domain or "youtu.be" in domain or "pornhub.org" in domain:
+            self.handle_youtube_via_yt_dlp(current_url)
+            return
+
+        # --- Bestehender Code für normale <video>-Elemente --- #
+        js_code = r"""
+        (function() {
+            var videos = document.getElementsByTagName('video');
+            var chosenSources = [];
+            
+            for (var i = 0; i < videos.length; i++) {
+                var bestSrc = null;
+                var bestQuality = 0;
+                
+                var sourceTags = videos[i].getElementsByTagName('source');
+                for (var j = 0; j < sourceTags.length; j++) {
+                    var src = sourceTags[j].src;
+                    
+                    var labelAttr = sourceTags[j].getAttribute('label') ||
+                                    sourceTags[j].getAttribute('data-res') || "";
+                    
+                    var foundQuality = 0;
+                    var matchLabel = labelAttr.match(/(\d+)p/);
+                    if (matchLabel) {
+                        foundQuality = parseInt(matchLabel[1], 10);
+                    } else {
+                        var matchURL = src.match(/(\d+)p/);
+                        if (matchURL) {
+                            foundQuality = parseInt(matchURL[1], 10);
+                        }
+                    }
+                    
+                    if (foundQuality > bestQuality) {
+                        bestQuality = foundQuality;
+                        bestSrc = src;
+                    }
+                }
+                
+                if (bestSrc) {
+                    chosenSources.push(bestSrc);
+                } else {
+                    var fallback = videos[i].currentSrc || videos[i].src;
+                    if (fallback) {
+                        chosenSources.push(fallback);
+                    }
+                }
+            }
+            
+            return chosenSources;
+        })();
+        """
+        page = self.tabs.currentWidget().page()
+        page.runJavaScript(js_code, self.handle_video_scan_result)
+
+    def handle_video_scan_result(self, video_sources):
+        if not video_sources:
+            QMessageBox.information(self, "Info", "Keine Videoelemente auf dieser Seite gefunden.")
+            return
+
+        final_urls = []
+        for vs in video_sources:
+            # Prüfen, ob es eine M3U8-Datei ist
+            if vs.endswith('.m3u8'):
+                # Hole ALLE Varianten zur Auswahl
+                variants = self.parse_m3u8_for_all_variants(vs)
+
+                if len(variants) == 1:
+                    # Nur 1 Variante -> direkt nehmen
+                    final_urls.append(variants[0][1])
+                else:
+                    chosen_variant = self.ask_user_for_m3u8_variant(variants)
+                    if chosen_variant:
+                        final_urls.append(chosen_variant)
+            else:
+                # Normale Video-URL
+                final_urls.append(vs)
+
+        if not final_urls:
+            return
+
+        if len(final_urls) == 1:
+            # Nur 1 finales Video
+            self.play_video_in_vlc(final_urls[0])
+        else:
+            # Mehrere Videos -> Liste anzeigen
+            dlg = QDialog(self)
+            dlg.setWindowTitle("Videos auswählen")
+            dlg.resize(400, 300)
+            layout = QVBoxLayout()
+
+            list_widget = QListWidget()
+            for src in final_urls:
+                item = QListWidgetItem(src)
+                list_widget.addItem(item)
+            layout.addWidget(list_widget)
+
+            btn_layout = QHBoxLayout()
+            play_btn = QPushButton("Abspielen")
+            cancel_btn = QPushButton("Abbrechen")
+            btn_layout.addWidget(play_btn)
+            btn_layout.addWidget(cancel_btn)
+            layout.addLayout(btn_layout)
+
+            dlg.setLayout(layout)
+
+            def on_play_clicked():
+                selected_item = list_widget.currentItem()
+                if selected_item:
+                    video_url = selected_item.text()
+                    self.play_video_in_vlc(video_url)
+                    dlg.accept()
+                else:
+                    QMessageBox.warning(self, "Warnung", "Bitte wählen Sie ein Video aus.")
+
+            play_btn.clicked.connect(on_play_clicked)
+            cancel_btn.clicked.connect(dlg.reject)
+
+            dlg.exec()
+
+    def play_video_in_vlc(self, video_url):
+        dlg = VLCPlayerDialog(video_url, self)
+        dlg.exec()
+
+    def parse_m3u8_for_all_variants(self, m3u8_url):
+        """
+        Lädt ein M3U8 (Master) Manifest herunter und gibt
+        eine Liste aller (label, url)-Paare zurück.
+        """
+        from urllib.parse import urljoin
+
+        variants = []
+
+        try:
+            response = requests.get(m3u8_url)
+            response.raise_for_status()
+
+            master_m3u8 = m3u8.loads(response.text)
+
+            if master_m3u8.is_variant:
+                for playlist in master_m3u8.playlists:
+                    res = playlist.stream_info.resolution
+                    bw = playlist.stream_info.bandwidth or 0
+                    if res:
+                        w, h = res
+                        label = f"{w}x{h} ({bw} bps)"
+                    else:
+                        label = f"{bw} bps"
+
+                    variant_url = urljoin(m3u8_url, playlist.uri)
+                    variants.append((label, variant_url))
+            else:
+                # Keine Master-Playlist -> nur 1 Variante
+                variants.append(("(Single)", m3u8_url))
+
+        except Exception as e:
+            print(f"Fehler beim Parsen der M3U8: {e}")
+            variants.append(("(Error)", m3u8_url))
+
+        return variants
+
+    def ask_user_for_m3u8_variant(self, variants):
+        """
+        Öffnet ein kleines Dialogfenster mit einer Liste (QListWidget),
+        in der man eine Auflösung/Bandbreite auswählen kann.
+        Gibt die ausgewählte URL zurück oder None, falls Abbruch.
+        """
+        dlg = QDialog(self)
+        dlg.setWindowTitle("Stream auswählen")
+        dlg.resize(300, 200)
+        layout = QVBoxLayout(dlg)
+
+        info_label = QLabel("Verfügbare Qualitätsstufen:")
+        layout.addWidget(info_label)
+
+        list_widget = QListWidget()
+        for label_text, url in variants:
+            item = QListWidgetItem(label_text)
+            item.setData(Qt.ItemDataRole.UserRole, url)
+            list_widget.addItem(item)
+        layout.addWidget(list_widget)
+
+        btn_layout = QHBoxLayout()
+        ok_btn = QPushButton("OK")
+        cancel_btn = QPushButton("Abbrechen")
+        btn_layout.addWidget(ok_btn)
+        btn_layout.addWidget(cancel_btn)
+        layout.addLayout(btn_layout)
+
+        chosen_url = [None]  # mutable Container zum "Rückgeben"
+
+        def on_ok():
+            item = list_widget.currentItem()
+            if item:
+                chosen_url[0] = item.data(Qt.ItemDataRole.UserRole)
+            dlg.accept()
+
+        def on_cancel():
+            dlg.reject()
+
+        ok_btn.clicked.connect(on_ok)
+        cancel_btn.clicked.connect(on_cancel)
+
+        dlg.exec()
+        return chosen_url[0]
+
+    def show_whois_info(self):
+        current_url = self.tabs.currentWidget().url().toString()
+        domain = QUrl(current_url).host()
+        if not domain:
+            QMessageBox.warning(self, "Warnung", "Keine gültige Domain gefunden.")
+            return
+
+        try:
+            ip_address = socket.gethostbyname(domain)
+        except socket.gaierror:
+            QMessageBox.warning(self, "Warnung", f"IP-Adresse für {domain} konnte nicht ermittelt werden.")
+            ip_address = "Nicht verfügbar"
+
+        try:
+            w = whois.whois(domain)
+            if hasattr(w, 'text') and w.text:
+                whois_info = w.text
+            else:
+                whois_info = ""
+                for key, value in w.items():
+                    if isinstance(value, list):
+                        value = ', '.join([self.convert_datetime(v) for v in value])
+                    else:
+                        value = self.convert_datetime(value)
+                    whois_info += f"{key}: {value}\n"
+        except Exception as e:
+            QMessageBox.warning(self, "Warnung", f"WHOIS-Abfrage fehlgeschlagen: {e}")
+            whois_info = "Keine WHOIS-Informationen verfügbar."
+
+        ip_info = f"IP-Adresse: {ip_address}"
+        dlg = WhoisDialog(whois_info, ip_info, self)
+        dlg.exec()
+
+    def convert_datetime(self, value):
+        if isinstance(value, datetime):
+            return value.strftime('%Y-%m-%d %H:%M:%S')
+        return str(value)
+
+    # -------------- NEU/GEÄNDERT: Extra Methode für YouTube -------------- #
+    def handle_youtube_via_yt_dlp(self, youtube_url):
+        """
+        Fragt via yt-dlp die verfügbaren Streams (Formate) für das gegebene YouTube-Video ab
+        und öffnet sie dann wahlweise im VLC-Dialog.
+        """
+        ydl_opts = {
+            'quiet': True,
+            'no_warnings': True,
+            'format': 'best'  # oder 'bestvideo+bestaudio/best' je nach Bedarf
+        }
+        try:
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                info = ydl.extract_info(youtube_url, download=False)
+                formats = info.get('formats', [])
+                if not formats:
+                    QMessageBox.warning(self, "Fehler", "Keine abspielbaren Formate gefunden.")
+                    return
+
+                # Alle Formate auflisten
+                variant_list = []
+                for f in formats:
+                    # Resolution kann z.B. "1920x1080" sein oder None
+                    resolution = f.get('resolution') or f"{f.get('width','?')}x{f.get('height','?')}"
+                    label = f"{resolution} ({f.get('ext','?')}, {f.get('format_id','?')}, {f.get('fps','?')}fps)"
+                    direct_url = f.get('url')
+                    if direct_url:
+                        variant_list.append((label, direct_url))
+
+                if not variant_list:
+                    QMessageBox.warning(self, "Fehler", "Keine abspielbaren Direct-URLs gefunden.")
+                    return
+
+                # Wenn es nur ein Format gibt, direkt abspielen:
+                if len(variant_list) == 1:
+                    self.play_video_in_vlc(variant_list[0][1])
+                    return
+
+                # Sonst: Dialog zur Auswahl des Formats
+                dlg = QDialog(self)
+                dlg.setWindowTitle("Stream auswählen")
+                dlg.resize(400, 300)
+                layout = QVBoxLayout(dlg)
+
+                info_label = QLabel(f"Formate für: {info.get('title', youtube_url)}")
+                layout.addWidget(info_label)
+
+                list_widget = QListWidget()
+                for label_text, url in variant_list:
+                    item = QListWidgetItem(label_text)
+                    item.setData(Qt.ItemDataRole.UserRole, url)
+                    list_widget.addItem(item)
+                layout.addWidget(list_widget)
+
+                btn_layout = QHBoxLayout()
+                ok_btn = QPushButton("Abspielen")
+                cancel_btn = QPushButton("Abbrechen")
+                btn_layout.addWidget(ok_btn)
+                btn_layout.addWidget(cancel_btn)
+                layout.addLayout(btn_layout)
+
+                def on_ok():
+                    item = list_widget.currentItem()
+                    if item:
+                        chosen_url = item.data(Qt.ItemDataRole.UserRole)
+                        self.play_video_in_vlc(chosen_url)
+                    dlg.accept()
+
+                def on_cancel():
+                    dlg.reject()
+
+                ok_btn.clicked.connect(on_ok)
+                cancel_btn.clicked.connect(on_cancel)
+
+                dlg.exec()
+
+        except Exception as e:
+            QMessageBox.warning(self, "YouTube-Fehler", f"Fehler beim Abrufen der Streams:\n{e}")
+
+    # -------------- NEU/GEÄNDERT: Scan & Play-Methode anpassen -------------- #
+    def scan_and_play_videos(self):
+        current_url = self.tabs.currentWidget().url().toString()
+        domain = QUrl(current_url).host().lower()
+
+        # Wenn es eine YouTube-URL ist, verwende yt-dlp statt <video>-Tags
+        # (Abfrage kann man ausbauen: "youtube.com", "youtu.be", "youtube-nocookie.com", etc.)
+        if "youtube.com" in domain or "youtu.be" in domain or "pornhub.org" in domain:
+            self.handle_youtube_via_yt_dlp(current_url)
+            return
+
+        # --- Bestehender Code für normale <video>-Elemente --- #
+        js_code = r"""
+        (function() {
+            var videos = document.getElementsByTagName('video');
+            var chosenSources = [];
+            
+            for (var i = 0; i < videos.length; i++) {
+                var bestSrc = null;
+                var bestQuality = 0;
+                
+                var sourceTags = videos[i].getElementsByTagName('source');
+                for (var j = 0; j < sourceTags.length; j++) {
+                    var src = sourceTags[j].src;
+                    
+                    var labelAttr = sourceTags[j].getAttribute('label') ||
+                                    sourceTags[j].getAttribute('data-res') || "";
+                    
+                    var foundQuality = 0;
+                    var matchLabel = labelAttr.match(/(\d+)p/);
+                    if (matchLabel) {
+                        foundQuality = parseInt(matchLabel[1], 10);
+                    } else {
+                        var matchURL = src.match(/(\d+)p/);
+                        if (matchURL) {
+                            foundQuality = parseInt(matchURL[1], 10);
+                        }
+                    }
+                    
+                    if (foundQuality > bestQuality) {
+                        bestQuality = foundQuality;
+                        bestSrc = src;
+                    }
+                }
+                
+                if (bestSrc) {
+                    chosenSources.push(bestSrc);
+                } else {
+                    var fallback = videos[i].currentSrc || videos[i].src;
+                    if (fallback) {
+                        chosenSources.push(fallback);
+                    }
+                }
+            }
+            
+            return chosenSources;
+        })();
+        """
+        page = self.tabs.currentWidget().page()
+        page.runJavaScript(js_code, self.handle_video_scan_result)
+
+    def play_video_in_vlc(self, video_url):
+        dlg = VLCPlayerDialog(video_url, self)
+        dlg.exec()
+
+    def parse_m3u8_for_all_variants(self, m3u8_url):
+        """
+        Lädt ein M3U8 (Master) Manifest herunter und gibt
+        eine Liste aller (label, url)-Paare zurück.
+        """
+        from urllib.parse import urljoin
+
+        variants = []
+
+        try:
+            response = requests.get(m3u8_url)
+            response.raise_for_status()
+
+            master_m3u8 = m3u8.loads(response.text)
+
+            if master_m3u8.is_variant:
+                for playlist in master_m3u8.playlists:
+                    res = playlist.stream_info.resolution
+                    bw = playlist.stream_info.bandwidth or 0
+                    if res:
+                        w, h = res
+                        label = f"{w}x{h} ({bw} bps)"
+                    else:
+                        label = f"{bw} bps"
+
+                    variant_url = urljoin(m3u8_url, playlist.uri)
+                    variants.append((label, variant_url))
+            else:
+                # Keine Master-Playlist -> nur 1 Variante
+                variants.append(("(Single)", m3u8_url))
+
+        except Exception as e:
+            print(f"Fehler beim Parsen der M3U8: {e}")
+            variants.append(("(Error)", m3u8_url))
+
+        return variants
+
+    def ask_user_for_m3u8_variant(self, variants):
+        """
+        Öffnet ein kleines Dialogfenster mit einer Liste (QListWidget),
+        in der man eine Auflösung/Bandbreite auswählen kann.
+        Gibt die ausgewählte URL zurück oder None, falls Abbruch.
+        """
+        dlg = QDialog(self)
+        dlg.setWindowTitle("Stream auswählen")
+        dlg.resize(300, 200)
+        layout = QVBoxLayout(dlg)
+
+        info_label = QLabel("Verfügbare Qualitätsstufen:")
+        layout.addWidget(info_label)
+
+        list_widget = QListWidget()
+        for label_text, url in variants:
+            item = QListWidgetItem(label_text)
+            item.setData(Qt.ItemDataRole.UserRole, url)
+            list_widget.addItem(item)
+        layout.addWidget(list_widget)
+
+        btn_layout = QHBoxLayout()
+        ok_btn = QPushButton("OK")
+        cancel_btn = QPushButton("Abbrechen")
+        btn_layout.addWidget(ok_btn)
+        btn_layout.addWidget(cancel_btn)
+        layout.addLayout(btn_layout)
+
+        chosen_url = [None]  # mutable Container zum "Rückgeben"
+
+        def on_ok():
+            item = list_widget.currentItem()
+            if item:
+                chosen_url[0] = item.data(Qt.ItemDataRole.UserRole)
+            dlg.accept()
+
+        def on_cancel():
+            dlg.reject()
+
+        ok_btn.clicked.connect(on_ok)
+        cancel_btn.clicked.connect(on_cancel)
+
+        dlg.exec()
+        return chosen_url[0]
+
+    # -------------- NEU/GEÄNDERT: Clipboard Handling -------------- #
+    def handle_form_submission(self, username, password):
+        # Implementieren Sie hier die Logik zur Verarbeitung von Formularübermittlungen
+        pass
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
