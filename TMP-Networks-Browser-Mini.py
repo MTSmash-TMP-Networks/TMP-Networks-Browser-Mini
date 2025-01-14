@@ -9,6 +9,7 @@ import requests
 import vlc
 import socket
 import whois
+import m3u8  # <-- Wichtig für das Parsen von M3U8
 from datetime import datetime
 
 from urllib.parse import urljoin
@@ -789,7 +790,6 @@ class Browser(QMainWindow):
             submenu.addAction(open_action)
 
             delete_action = QAction("Löschen ❌", self)
-            # Per lambda das jeweilige Favoriten-Dict übergeben
             delete_action.triggered.connect(lambda checked, f=fav: self.delete_favorite_directly(f))
             submenu.addAction(delete_action)
 
@@ -1040,18 +1040,32 @@ class Browser(QMainWindow):
 
         final_urls = []
         for vs in video_sources:
+            # Prüfen, ob es eine M3U8-Datei ist
             if vs.endswith('.m3u8'):
-                best_variant = self.parse_m3u8_for_highest_variant(vs)
-                final_urls.append(best_variant)
+                # Hole ALLE Varianten zur Auswahl
+                variants = self.parse_m3u8_for_all_variants(vs)
+
+                if len(variants) == 1:
+                    # Nur 1 Variante -> direkt nehmen
+                    final_urls.append(variants[0][1])
+                else:
+                    chosen_variant = self.ask_user_for_m3u8_variant(variants)
+                    if chosen_variant:
+                        final_urls.append(chosen_variant)
             else:
+                # Normale Video-URL
                 final_urls.append(vs)
 
+        if not final_urls:
+            return
+
         if len(final_urls) == 1:
-            video_url = final_urls[0]
-            self.play_video_in_vlc(video_url)
+            # Nur 1 finales Video
+            self.play_video_in_vlc(final_urls[0])
         else:
+            # Mehrere Videos -> Liste anzeigen
             dlg = QDialog(self)
-            dlg.setWindowTitle("Videos auswählen (höchste Auflösung)")
+            dlg.setWindowTitle("Videos auswählen")
             dlg.resize(400, 300)
             layout = QVBoxLayout()
 
@@ -1069,23 +1083,108 @@ class Browser(QMainWindow):
             layout.addLayout(btn_layout)
 
             dlg.setLayout(layout)
-            play_btn.clicked.connect(lambda: self.play_selected_video(list_widget, dlg))
+
+            def on_play_clicked():
+                selected_item = list_widget.currentItem()
+                if selected_item:
+                    video_url = selected_item.text()
+                    self.play_video_in_vlc(video_url)
+                    dlg.accept()
+                else:
+                    QMessageBox.warning(self, "Warnung", "Bitte wählen Sie ein Video aus.")
+
+            play_btn.clicked.connect(on_play_clicked)
             cancel_btn.clicked.connect(dlg.reject)
 
             dlg.exec()
 
-    def play_selected_video(self, list_widget, dialog):
-        selected_item = list_widget.currentItem()
-        if selected_item:
-            video_url = selected_item.text()
-            self.play_video_in_vlc(video_url)
-            dialog.accept()
-        else:
-            QMessageBox.warning(self, "Warnung", "Bitte wählen Sie ein Video aus.")
-
     def play_video_in_vlc(self, video_url):
         dlg = VLCPlayerDialog(video_url, self)
         dlg.exec()
+
+    def parse_m3u8_for_all_variants(self, m3u8_url):
+        """
+        Lädt ein M3U8 (Master) Manifest herunter und gibt
+        eine Liste aller (label, url)-Paare zurück,
+        z.B. ["720p (3500000 bps)", "1080p (6000000 bps)", ...].
+        """
+        from urllib.parse import urljoin
+
+        variants = []
+
+        try:
+            response = requests.get(m3u8_url)
+            response.raise_for_status()
+
+            master_m3u8 = m3u8.loads(response.text)
+
+            if master_m3u8.is_variant:
+                for playlist in master_m3u8.playlists:
+                    res = playlist.stream_info.resolution
+                    bw = playlist.stream_info.bandwidth or 0
+                    if res:
+                        w, h = res
+                        label = f"{w}x{h} ({bw} bps)"
+                    else:
+                        label = f"{bw} bps"
+
+                    variant_url = urljoin(m3u8_url, playlist.uri)
+                    variants.append((label, variant_url))
+            else:
+                # Keine Master-Playlist -> nur 1 Variante
+                variants.append(("(Single)", m3u8_url))
+
+        except Exception as e:
+            print(f"Fehler beim Parsen der M3U8: {e}")
+            variants.append(("(Error)", m3u8_url))
+
+        return variants
+
+    def ask_user_for_m3u8_variant(self, variants):
+        """
+        Öffnet ein kleines Dialogfenster mit einer Liste (QListWidget),
+        in der man eine Auflösung/Bandbreite auswählen kann.
+        Gibt die ausgewählte URL zurück oder None, falls Abbruch.
+        """
+        dlg = QDialog(self)
+        dlg.setWindowTitle("Stream auswählen")
+        dlg.resize(300, 200)
+        layout = QVBoxLayout(dlg)
+
+        info_label = QLabel("Verfügbare Qualitätsstufen:")
+        layout.addWidget(info_label)
+
+        list_widget = QListWidget()
+        for label_text, url in variants:
+            item = QListWidgetItem(label_text)
+            # URL in "Data" speichern:
+            item.setData(Qt.ItemDataRole.UserRole, url)
+            list_widget.addItem(item)
+        layout.addWidget(list_widget)
+
+        btn_layout = QHBoxLayout()
+        ok_btn = QPushButton("OK")
+        cancel_btn = QPushButton("Abbrechen")
+        btn_layout.addWidget(ok_btn)
+        btn_layout.addWidget(cancel_btn)
+        layout.addLayout(btn_layout)
+
+        chosen_url = [None]  # mutable Container zum "Rückgeben"
+
+        def on_ok():
+            item = list_widget.currentItem()
+            if item:
+                chosen_url[0] = item.data(Qt.ItemDataRole.UserRole)
+            dlg.accept()
+
+        def on_cancel():
+            dlg.reject()
+
+        ok_btn.clicked.connect(on_ok)
+        cancel_btn.clicked.connect(on_cancel)
+
+        dlg.exec()
+        return chosen_url[0]
 
     def show_whois_info(self):
         current_url = self.tabs.currentWidget().url().toString()
