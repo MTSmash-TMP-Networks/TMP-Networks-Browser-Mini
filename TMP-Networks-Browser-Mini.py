@@ -347,46 +347,6 @@ class CredentialsManagerDialog(QDialog):
             item = QListWidgetItem(item_text)
             self.list_widget.addItem(item)
 
-class HistoryDialog(QDialog):
-    """
-    Einfache Dialogklasse, um die Chronik anzuzeigen.
-    """
-    def __init__(self, parent=None, history_list=None):
-        super().__init__(parent)
-        self.setWindowTitle("Chronik anzeigen")
-        self.resize(400, 300)
-        self.history = history_list if history_list else []
-
-        layout = QVBoxLayout()
-
-        self.list_widget = QListWidget()
-        for entry in self.history:
-            title = entry.get("title", "Ohne Titel")
-            url = entry.get("url", "")
-            item_text = f"{title}\n{url}"
-            item = QListWidgetItem(item_text)
-            self.list_widget.addItem(item)
-        layout.addWidget(self.list_widget)
-
-        # Navigation beim Doppelklick
-        self.list_widget.itemDoubleClicked.connect(self.navigate_from_history)
-
-        close_btn = QPushButton("Schließen")
-        close_btn.clicked.connect(self.accept)
-        layout.addWidget(close_btn)
-
-        self.setLayout(layout)
-
-    def navigate_from_history(self, item):
-        text = item.text()
-        lines = text.split("\n")
-        if len(lines) >= 2:
-            url = lines[-1]
-            main_window = self.parent()
-            if hasattr(main_window, "navigate_to_url_string"):
-                main_window.navigate_to_url_string(url)
-            self.accept()
-
 class EditFavoriteDialog(QDialog):
     """
     Dialog zum Bearbeiten eines einzelnen Favoriten (Titel/URL).
@@ -516,6 +476,46 @@ class FavoritesManagerDialog(QDialog):
             item_text = f"{fav['title']}\n{fav['url']}"
             item = QListWidgetItem(item_text)
             self.list_widget.addItem(item)
+
+class HistoryDialog(QDialog):
+    """
+    Einfache Dialogklasse, um die Chronik anzuzeigen.
+    """
+    def __init__(self, parent=None, history_list=None):
+        super().__init__(parent)
+        self.setWindowTitle("Chronik anzeigen")
+        self.resize(400, 300)
+        self.history = history_list if history_list else []
+
+        layout = QVBoxLayout()
+
+        self.list_widget = QListWidget()
+        for entry in self.history:
+            title = entry.get("title", "Ohne Titel")
+            url = entry.get("url", "")
+            item_text = f"{title}\n{url}"
+            item = QListWidgetItem(item_text)
+            self.list_widget.addItem(item)
+        layout.addWidget(self.list_widget)
+
+        # Navigation beim Doppelklick
+        self.list_widget.itemDoubleClicked.connect(self.navigate_from_history)
+
+        close_btn = QPushButton("Schließen")
+        close_btn.clicked.connect(self.accept)
+        layout.addWidget(close_btn)
+
+        self.setLayout(layout)
+
+    def navigate_from_history(self, item):
+        text = item.text()
+        lines = text.split("\n")
+        if len(lines) >= 2:
+            url = lines[-1]
+            main_window = self.parent()
+            if hasattr(main_window, "navigate_to_url_string"):
+                main_window.navigate_to_url_string(url)
+            self.accept()
 
 class WhoisDialog(QDialog):
     def __init__(self, domain_info, ip_info, parent=None):
@@ -827,41 +827,33 @@ class Browser(QMainWindow):
         self.tabs.currentWidget().setUrl(q)
 
     def on_downloadRequested(self, download):
-        # Anpassung für PyQt6: Verwende QFileDialog.Option (Singular) statt QFileDialog.Options()
-        # Falls keine speziellen Optionen benötigt werden, kannst du das 'options'-Argument weglassen
-        # Hier zeige ich beide Möglichkeiten:
-
-        # Möglichkeit 1: Keine speziellen Optionen
-        # file_path, _ = QFileDialog.getSaveFileName(
-        #     self,
-        #     "Speichern unter",
-        #     download.path(),
-        #     "Alle Dateien (*)"
-        # )
-
-        # Möglichkeit 2: Spezielle Optionen setzen (z.B. Nicht-native Dialog verwenden)
-        # Hier kombiniere ich Optionen mittels bitweiser OR-Operation
-        opts = QFileDialog.Option.DontUseNativeDialog | QFileDialog.Option.DontResolveSymlinks
+        """
+        In PyQt6 / Qt6 gibt es kein .path-Attribut mehr für QWebEngineDownloadRequest.
+        Stattdessen verwendet man setDownloadDirectory() und setDownloadFileName().
+        """
+        # Zeige "Speichern unter" Dialog:
         file_path, _ = QFileDialog.getSaveFileName(
             self,
             "Speichern unter",
-            download.path(),
-            "Alle Dateien (*)",
-            options=opts
+            download.downloadFileName() or "",  # Falls None -> ""
+            "Alle Dateien (*)"
         )
 
         if file_path:
-            download.setPath(file_path)
+            # Split Pfad in Verzeichnis + Dateiname
+            directory = os.path.dirname(file_path)
+            filename_only = os.path.basename(file_path)
+
+            # Download konfigurieren
+            download.setDownloadDirectory(directory)
+            download.setDownloadFileName(filename_only)
             download.accept()
-            
-            # Download-Objekt in einer Instanzliste speichern,
-            # damit es nicht vom Garbage Collector entfernt wird.
+
+            # Download am Leben halten
             self.active_downloads.append(download)
-            
+
             download.downloadProgress.connect(self.download_progress)
-            download.finished.connect(
-                lambda: self.download_finished(download)
-            )
+            download.finished.connect(lambda: self.download_finished(download))
 
     def download_progress(self, received, total):
         if total > 0:
@@ -871,8 +863,9 @@ class Browser(QMainWindow):
             self.status.showMessage("Download läuft...")
 
     def download_finished(self, download):
-        self.status.showMessage(f"Download abgeschlossen: {download.path()}")
-        # Nach Abschluss aus der Liste entfernen
+        # Pfad aus downloadDirectory + downloadFileName zusammensetzen:
+        final_file = os.path.join(download.downloadDirectory(), download.downloadFileName())
+        self.status.showMessage(f"Download abgeschlossen: {final_file}")
         if download in self.active_downloads:
             self.active_downloads.remove(download)
 
