@@ -25,6 +25,7 @@ from PyQt6.QtGui import QAction, QFont
 from PyQt6.QtCore import QUrl, QSize, QObject, pyqtSlot, Qt, QTimer
 from PyQt6.QtWebEngineWidgets import QWebEngineView
 from PyQt6.QtWebChannel import QWebChannel
+from PyQt6.QtWebEngineCore import QWebEnginePage, QWebEngineSettings
 
 # AppDirs für plattformübergreifende Pfadverwaltung
 from appdirs import AppDirs
@@ -197,10 +198,42 @@ class VLCPlayerDialog(QDialog):
         self.media_player.stop()
         super().closeEvent(event)
 
+class MyWebEnginePage(QWebEnginePage):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        
+        # Damit JavaScript auf die Zwischenablage zugreifen darf:
+        self.settings().setAttribute(
+            QWebEngineSettings.WebAttribute.JavascriptCanAccessClipboard,
+            True
+        )
+        
+        # Falls du noch andere Features (z.B. Geolocation usw.) manuell erlauben willst,
+        # kannst du das Signal hier abfangen:
+        self.featurePermissionRequested.connect(self.onFeaturePermissionRequested)
+
+    def onFeaturePermissionRequested(self, security_origin, feature):
+        """
+        Hier kannst du - wenn nötig - andere Features erlauben oder ablehnen,
+        z.B. Notifications, Geolocation, Kamera, Mikrofon etc.
+        Clipboard gibt es hier in Qt6 jedoch nicht mehr als separates Feature.
+        """
+        # Beispiel: Alle Feature-Anfragen ablehnen, außer Geolocation
+        if feature == QWebEnginePage.Feature.Geolocation:
+            self.setFeaturePermission(security_origin, feature,
+                                      QWebEnginePage.PermissionPolicy.PermissionGrantedByUser)
+        else:
+            self.setFeaturePermission(security_origin, feature,
+                                      QWebEnginePage.PermissionPolicy.PermissionDeniedByUser)
+
 class CustomWebEngineView(QWebEngineView):
     def __init__(self, browser):
         super().__init__()
         self.browser = browser
+        
+        # Unsere eigene Page-Klasse verwenden:
+        custom_page = MyWebEnginePage(self)
+        self.setPage(custom_page)
 
     def createWindow(self, requested_window_type):
         reply = QMessageBox.question(
