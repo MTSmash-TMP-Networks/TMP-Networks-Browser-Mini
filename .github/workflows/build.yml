@@ -89,10 +89,14 @@ jobs:
       - name: Build EXE
         shell: powershell
         run: |
+          # Bereinige vorherige Builds
+          if (Test-Path build) { Remove-Item -Recurse -Force build }
+          if (Test-Path dist)  { Remove-Item -Recurse -Force dist }
+
           pyinstaller --onefile --windowed `
             --icon=assets/logo.ico `
-            --hidden-import PyQt6.QtWebEngineCore `
-            --hidden-import PyQt6.QtWebEngineWidgets `
+            --collect-all PyQt6.QtWebEngineCore `
+            --collect-all PyQt6.QtWebEngineWidgets `
             --add-binary "C:\Program Files\VideoLAN\VLC\libvlc.dll;." `
             --add-binary "C:\Program Files\VideoLAN\VLC\libvlccore.dll;." `
             --add-data "C:\Program Files\VideoLAN\VLC\plugins;plugins" `
@@ -159,11 +163,10 @@ jobs:
             exit 1
           fi
 
-          # Baue die App mit PyInstaller und füge die Daten-Datei hinzu
           pyinstaller --windowed \
             --icon=assets/logo.icns \
-            --hidden-import PyQt6.QtWebEngineCore \
-            --hidden-import PyQt6.QtWebEngineWidgets \
+            --collect-all PyQt6.QtWebEngineCore \
+            --collect-all PyQt6.QtWebEngineWidgets \
             --add-binary "/Applications/VLC.app/Contents/MacOS/lib/libvlc.dylib:." \
             --add-binary "/Applications/VLC.app/Contents/MacOS/lib/libvlccore.dylib:." \
             --add-data "/Applications/VLC.app/Contents/MacOS/plugins:plugins" \
@@ -183,7 +186,6 @@ jobs:
 
       - name: Compress .app for Artifact
         run: |
-          # Komprimiere die fertige App als ZIP
           cd dist
           ditto -c -k --sequesterRsrc --keepParent "TMP-Networks-Browser-Mini.app" \
                 "TMP-Networks-Browser-Mini-macOS.zip"
@@ -294,18 +296,20 @@ jobs:
 
       - name: Build Executable
         run: |
+          # Lösche alte Builds
+          rm -rf build dist
+
           pyinstaller --onefile \
             --windowed \
             --icon=assets/logo.png \
-            --hidden-import PyQt6.QtWebEngineCore \
-            --hidden-import PyQt6.QtWebEngineWidgets \
+            --collect-all PyQt6.QtWebEngineCore \
+            --collect-all PyQt6.QtWebEngineWidgets \
             --add-binary "$LIBVLC_PATH:." \
             --add-binary "$LIBVLCCORE_PATH:." \
             --add-data "$PLUGINS_PATH:plugins" \
             --add-data "$PUBLIC_SUFFIX_PATH:whois/data" \
             TMP-Networks-Browser-Mini.py
 
-          # Überprüfe den Inhalt von dist/
           echo "Inhalt von dist/:"
           ls -R dist/
 
