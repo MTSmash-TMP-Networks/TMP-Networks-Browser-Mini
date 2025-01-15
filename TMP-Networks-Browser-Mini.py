@@ -972,22 +972,23 @@ class Browser(QMainWindow):
                 )
 
     def poll_download(self, download_info):
-        download = download_info["download_obj"]
-        received = download.receivedBytes()
-        total = download.totalBytes()
+        if "download_obj" in download_info:
+            download = download_info["download_obj"]
+            received = download.receivedBytes()
+            total = download.totalBytes()
 
-        if total > 0:
-            percent = int(received / total * 100)
-            percent = min(percent, 100)  # Sicherstellen, dass nicht über 100%
-            download_info["progress_percent"] = percent
-            self.download_progress_bar.setValue(percent)
-            self.download_progress_bar.setVisible(True)
-            print(f"Download Fortschritt: {percent}% - {download_info['filename']}")
-        else:
-            # Wenn totalBytes nicht verfügbar, setze ProgressBar auf 0 und in unbestimmten Modus
-            self.download_progress_bar.setRange(0, 0)
-            self.download_progress_bar.setVisible(True)
-            print(f"Download Fortschritt: Unbestimmt - {download_info['filename']}")
+            if total > 0:
+                percent = int(received / total * 100)
+                percent = min(percent, 100)  # Sicherstellen, dass nicht über 100%
+                download_info["progress_percent"] = percent
+                self.download_progress_bar.setValue(percent)
+                self.download_progress_bar.setVisible(True)
+                print(f"Download Fortschritt: {percent}% - {download_info['filename']}")
+            else:
+                # Wenn totalBytes nicht verfügbar, setze ProgressBar auf 0 und in unbestimmten Modus
+                self.download_progress_bar.setRange(0, 0)
+                self.download_progress_bar.setVisible(True)
+                print(f"Download Fortschritt: Unbestimmt - {download_info['filename']}")
 
     def handle_download_state_changed(self, download_info, state):
         """
@@ -1007,8 +1008,8 @@ class Browser(QMainWindow):
             QApplication.processEvents()  # Erzwingen der UI-Aktualisierung
             # Verstecke die ProgressBar nach einer kurzen Verzögerung
             QTimer.singleShot(100, lambda: self.download_progress_bar.setVisible(False))
-            # Setze den Thread auf None (Referenzen sauber halten)
-            download_info["thread"] = None
+            # Entferne den Download-Eintrag, da er abgeschlossen ist
+            self.active_downloads_info.remove(download_info)
 
         elif state in (
             QWebEngineDownloadRequest.DownloadState.DownloadCancelled,
@@ -1023,8 +1024,8 @@ class Browser(QMainWindow):
             # Setze die ProgressBar auf 0% und zeige sie kurz an
             self.download_progress_bar.setValue(0)
             QTimer.singleShot(2000, lambda: self.download_progress_bar.setVisible(False))
-            # Setze den Thread auf None (Referenzen sauber halten)
-            download_info["thread"] = None
+            # Entferne den Download-Eintrag, da er fehlgeschlagen oder abgebrochen ist
+            self.active_downloads_info.remove(download_info)
 
         # Aktualisiere den Download-Manager-Dialog (falls offen)
         if self.download_manager_dialog and self.download_manager_dialog.isVisible():
@@ -1347,12 +1348,14 @@ class Browser(QMainWindow):
         Bricht einen laufenden Download ab.
         """
         if download_info["status"] == "Läuft":
-            worker = download_info.get("worker")
-            if worker:
+            if "worker" in download_info and download_info["worker"]:
+                worker = download_info["worker"]
                 worker.cancel()
-            # Status wird aktualisiert durch den Worker
-            print(f"Download abgebrochen: {download_info['filename']}")
-
+                print(f"Download abgebrochen: {download_info['filename']}")
+            elif "download_obj" in download_info and download_info["download_obj"]:
+                download_obj = download_info["download_obj"]
+                download_obj.cancel()
+                print(f"Download abgebrochen: {download_info['filename']}")
         elif download_info["status"] == "Wartet":
             # Noch nicht gestartet, einfach entfernen
             self.active_downloads_info.remove(download_info)
@@ -1366,17 +1369,16 @@ class Browser(QMainWindow):
         """
         Löscht einen Download aus der aktiven Download-Liste.
         """
-        # Stoppe den Thread, falls noch aktiv
-        thread = download_info.get("thread")
-        if thread:
-            try:
-                if thread.isRunning():
-                    # Signal zum Abbrechen wurde bereits gesendet in cancel_download
-                    thread.quit()
-                    thread.wait()
-            except RuntimeError:
-                # Der Thread wurde bereits gelöscht
-                pass
+        # Stoppe den Thread oder breche den Download ab, falls noch aktiv
+        if download_info["status"] == "Läuft":
+            if "worker" in download_info and download_info["worker"]:
+                worker = download_info["worker"]
+                worker.cancel()
+                print(f"Download abgebrochen und gelöscht: {download_info['filename']}")
+            elif "download_obj" in download_info and download_info["download_obj"]:
+                download_obj = download_info["download_obj"]
+                download_obj.cancel()
+                print(f"Download abgebrochen und gelöscht: {download_info['filename']}")
 
         # Entferne den Download aus der Liste
         if download_info in self.active_downloads_info:
