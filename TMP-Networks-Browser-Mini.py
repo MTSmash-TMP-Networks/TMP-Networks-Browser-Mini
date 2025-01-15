@@ -1377,7 +1377,7 @@ class Browser(QMainWindow):
         if self.download_manager_dialog and self.download_manager_dialog.isVisible():
             self.download_manager_dialog.refresh_table()
 
-    # -------------- NEU/GEÄNDERT: Extra Methode für YouTube -------------- #
+    # -------------- NEU/GEÄNDERT: Extra Methode für Videos -------------- #
     def handle_youtube_via_yt_dlp(self, youtube_url):
         """
         Fragt via yt-dlp die verfügbaren Streams (Formate) für das gegebene YouTube-Video ab
@@ -1465,9 +1465,6 @@ class Browser(QMainWindow):
     def play_video_in_vlc(self, video_url):
         dlg = VLCPlayerDialog(video_url, self)
         dlg.exec()
-
-    # -------------- NEU/GEÄNDERT: Download-Video-Methode -------------- #
-    # Die Methode 'download_video_url' ist bereits definiert oben und muss nicht doppelt definiert werden
 
     # -------------- NEU: show_whois_info Methode -------------- #
     def show_whois_info(self):
