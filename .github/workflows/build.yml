@@ -57,6 +57,10 @@ jobs:
           pip install -r requirements.txt
           pip install --upgrade pyinstaller appdirs
 
+      - name: Install yt-dlp Nightly Version
+        run: |
+          python -m pip install -U --pre "yt-dlp[default]"
+
       - name: Find public_suffix_list.dat
         id: find_public_suffix
         shell: powershell
@@ -145,6 +149,10 @@ jobs:
           pip install --upgrade pip
           pip install -r requirements.txt
           pip install --upgrade pyinstaller appdirs
+
+      - name: Install yt-dlp Nightly Version
+        run: |
+          python -m pip install -U --pre "yt-dlp[default]"
 
       - name: Find public_suffix_list.dat
         id: find_public_suffix
@@ -262,6 +270,10 @@ jobs:
           pip install --upgrade pip
           pip install -r requirements.txt
           pip install --upgrade pyinstaller appdirs
+
+      - name: Install yt-dlp Nightly Version
+        run: |
+          python -m pip install -U --pre "yt-dlp[default]"
 
       - name: Find public_suffix_list.dat
         id: find_public_suffix
