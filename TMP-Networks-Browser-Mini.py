@@ -576,7 +576,7 @@ class WhoisDialog(QDialog):
 
 class DownloadManagerDialog(QDialog):
     """
-    Zeigt eine Tabelle aller aktiven (und kürzlich abgeschlossenen) Downloads an.
+    Zeigt eine Tabelle aller Downloads an.
     Ermöglicht das Abbrechen und Löschen von Downloads.
     """
     def __init__(self, parent=None):
@@ -627,7 +627,7 @@ class DownloadManagerDialog(QDialog):
     def refresh_table(self):
         if not self.browser:
             return
-        downloads = self.browser.active_downloads_info  # Liste mit dicts
+        downloads = self.browser.all_downloads_info  # Liste mit dicts
         self.table.setRowCount(len(downloads))
 
         for row, dl in enumerate(downloads):
@@ -663,14 +663,14 @@ class DownloadManagerDialog(QDialog):
         if not download_info:
             return
 
-        if download_info["status"] != "Läuft":
-            QMessageBox.warning(self, "Warnung", "Nur laufende Downloads können abgebrochen werden.")
+        if download_info["status"] not in ["Läuft", "Wartet"]:
+            QMessageBox.warning(self, "Warnung", "Nur laufende oder wartende Downloads können abgebrochen werden.")
             return
 
         reply = QMessageBox.question(
             self,
             "Abbrechen bestätigen",
-            f"Sollen die Downloads '{download_info['filename']}' wirklich abgebrochen werden?",
+            f"Sollen der Download '{download_info['filename']}' wirklich abgebrochen werden?",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             QMessageBox.StandardButton.No
         )
@@ -704,8 +704,9 @@ class Browser(QMainWindow):
         if "history" not in self.data:
             self.data["history"] = []
 
-        # Wir wollen auch Download-Infos speichern:
-        self.active_downloads_info = []  # Liste von Dicts, die unsere Download-Infos enthalten
+        # Listen für Downloads
+        self.active_downloads_info = []  # Nur aktive Downloads
+        self.all_downloads_info = []     # Alle Downloads
 
         self.tabs = QTabWidget()
         self.tabs.setDocumentMode(True)
@@ -947,7 +948,7 @@ class Browser(QMainWindow):
                 download.setDownloadFileName(filename_only)
                 download.accept()
 
-                # Eintrag im "active_downloads_info" erstellen:
+                # Eintrag im "active_downloads_info" und "all_downloads_info" erstellen:
                 download_info = {
                     "download_obj": download,
                     "filename": filename_only,
@@ -957,6 +958,7 @@ class Browser(QMainWindow):
                     "timer": None  # Hinzugefügt: Timer für das Polling
                 }
                 self.active_downloads_info.append(download_info)
+                self.all_downloads_info.append(download_info)
                 print(f"Download gestartet: {filename_only}")
 
                 # Starten des Polling-Timers für den Download-Fortschritt
@@ -971,6 +973,10 @@ class Browser(QMainWindow):
                     partial(self.handle_download_state_changed, download_info)
                 )
 
+                # Aktualisiere die Statusleiste und ProgressBar
+                self.download_progress_bar.setVisible(True)
+                self.status.showMessage(f"Download gestartet: {filename_only}")
+
     def poll_download(self, download_info):
         if "download_obj" in download_info:
             download = download_info["download_obj"]
@@ -982,12 +988,10 @@ class Browser(QMainWindow):
                 percent = min(percent, 100)  # Sicherstellen, dass nicht über 100%
                 download_info["progress_percent"] = percent
                 self.download_progress_bar.setValue(percent)
-                self.download_progress_bar.setVisible(True)
                 print(f"Download Fortschritt: {percent}% - {download_info['filename']}")
             else:
                 # Wenn totalBytes nicht verfügbar, setze ProgressBar auf 0 und in unbestimmten Modus
                 self.download_progress_bar.setRange(0, 0)
-                self.download_progress_bar.setVisible(True)
                 print(f"Download Fortschritt: Unbestimmt - {download_info['filename']}")
 
     def handle_download_state_changed(self, download_info, state):
@@ -1004,15 +1008,17 @@ class Browser(QMainWindow):
                 download_info["timer"].stop()
             # Aktualisiere die ProgressBar auf 100%
             self.download_progress_bar.setValue(100)
-            self.download_progress_bar.setVisible(True)  # Sicherstellen, dass es sichtbar ist
-            QApplication.processEvents()  # Erzwingen der UI-Aktualisierung
-            # Entferne den Download-Eintrag, da er abgeschlossen ist
-            self.active_downloads_info.remove(download_info)
-
+            # Entferne den Download-Eintrag aus aktiven Downloads
+            if download_info in self.active_downloads_info:
+                self.active_downloads_info.remove(download_info)
             # Überprüfe, ob keine aktiven Downloads mehr vorhanden sind
             if not self.active_downloads_info:
                 self.download_progress_bar.setVisible(False)
                 self.status.clearMessage()
+            else:
+                # Setze die ProgressBar auf den höchsten Fortschritt der verbleibenden Downloads
+                max_progress = max(dl["progress_percent"] for dl in self.active_downloads_info)
+                self.download_progress_bar.setValue(max_progress)
 
         elif state in (
             QWebEngineDownloadRequest.DownloadState.DownloadCancelled,
@@ -1026,15 +1032,17 @@ class Browser(QMainWindow):
                 download_info["timer"].stop()
             # Setze die ProgressBar auf 0% und zeige sie kurz an
             self.download_progress_bar.setValue(0)
-            self.download_progress_bar.setVisible(True)
-            print(f"Download Fortschritt: 0% - {download_info['filename']}")
-            # Entferne den Download-Eintrag, da er fehlgeschlagen oder abgebrochen ist
-            self.active_downloads_info.remove(download_info)
-
+            # Entferne den Download-Eintrag aus aktiven Downloads
+            if download_info in self.active_downloads_info:
+                self.active_downloads_info.remove(download_info)
             # Überprüfe, ob keine aktiven Downloads mehr vorhanden sind
             if not self.active_downloads_info:
                 self.download_progress_bar.setVisible(False)
                 self.status.clearMessage()
+            else:
+                # Setze die ProgressBar auf den höchsten Fortschritt der verbleibenden Downloads
+                max_progress = max(dl["progress_percent"] for dl in self.active_downloads_info)
+                self.download_progress_bar.setValue(max_progress)
 
         # Aktualisiere den Download-Manager-Dialog (falls offen)
         if self.download_manager_dialog and self.download_manager_dialog.isVisible():
@@ -1294,7 +1302,7 @@ class Browser(QMainWindow):
         if not save_path:
             return
 
-        # Erstelle den Download-Eintrag
+        # Erstelle den Download-Eintrag in beiden Listen
         download_info = {
             "filename": os.path.basename(save_path),
             "target_path": save_path,
@@ -1304,6 +1312,7 @@ class Browser(QMainWindow):
             "worker": None,
             "thread": None
         }
+        self.all_downloads_info.append(download_info)
         self.active_downloads_info.append(download_info)
 
         # Aktualisiere den Download-Manager-Dialog, falls geöffnet
@@ -1323,6 +1332,7 @@ class Browser(QMainWindow):
         worker.error.connect(lambda e: self.handle_download_error(download_info, e))
         worker.finished.connect(thread.quit)
         worker.finished.connect(worker.deleteLater)
+        worker.finished.connect(lambda: self.on_download_finished(download_info))
         thread.finished.connect(thread.deleteLater)
 
         # Starte den Thread
@@ -1331,6 +1341,10 @@ class Browser(QMainWindow):
         # Speichere Referenzen, um Garbage Collection zu verhindern
         download_info["worker"] = worker
         download_info["thread"] = thread
+
+        # Aktualisiere die Statusleiste und ProgressBar
+        self.download_progress_bar.setVisible(True)
+        self.status.showMessage(f"Download gestartet: {download_info['filename']}")
 
     def update_download_progress(self, download_info, percent):
         download_info["progress_percent"] = percent
@@ -1352,11 +1366,37 @@ class Browser(QMainWindow):
     def handle_download_error(self, download_info, error_message):
         QMessageBox.warning(self, "Download-Fehler", f"Fehler beim Herunterladen von {download_info['filename']}:\n{error_message}")
 
+    def on_download_finished(self, download_info):
+        # Aktualisiere den Status basierend auf dem letzten Status
+        if download_info["status"] == "Fertig":
+            self.status.showMessage(f"Download abgeschlossen: {download_info['target_path']}")
+        elif download_info["status"] == "Abgebrochen":
+            self.status.showMessage(f"Download abgebrochen: {download_info['target_path']}")
+        elif download_info["status"] == "Fehlgeschlagen":
+            self.status.showMessage(f"Download fehlgeschlagen: {download_info['target_path']}")
+
+        # Entferne den Download-Eintrag aus aktiven Downloads
+        if download_info in self.active_downloads_info:
+            self.active_downloads_info.remove(download_info)
+
+        # Überprüfe, ob keine aktiven Downloads mehr vorhanden sind
+        if not self.active_downloads_info:
+            self.download_progress_bar.setVisible(False)
+            self.status.clearMessage()
+        else:
+            # Setze die ProgressBar auf den höchsten Fortschritt der verbleibenden Downloads
+            max_progress = max(dl["progress_percent"] for dl in self.active_downloads_info)
+            self.download_progress_bar.setValue(max_progress)
+
+        # Aktualisiere den Download-Manager-Dialog (falls offen)
+        if self.download_manager_dialog and self.download_manager_dialog.isVisible():
+            self.download_manager_dialog.refresh_table()
+
     def cancel_download(self, download_info):
         """
         Bricht einen laufenden Download ab.
         """
-        if download_info["status"] == "Läuft":
+        if download_info["status"] in ["Läuft", "Wartet"]:
             if "worker" in download_info and download_info["worker"]:
                 worker = download_info["worker"]
                 worker.cancel()
@@ -1367,8 +1407,18 @@ class Browser(QMainWindow):
                 print(f"Download abgebrochen: {download_info['filename']}")
         elif download_info["status"] == "Wartet":
             # Noch nicht gestartet, einfach entfernen
-            self.active_downloads_info.remove(download_info)
+            if download_info in self.active_downloads_info:
+                self.active_downloads_info.remove(download_info)
             print(f"Download entfernt: {download_info['filename']}")
+
+        # Überprüfe, ob keine aktiven Downloads mehr vorhanden sind
+        if not self.active_downloads_info:
+            self.download_progress_bar.setVisible(False)
+            self.status.clearMessage()
+        else:
+            # Setze die ProgressBar auf den höchsten Fortschritt der verbleibenden Downloads
+            max_progress = max(dl["progress_percent"] for dl in self.active_downloads_info)
+            self.download_progress_bar.setValue(max_progress)
 
         # Update DownloadManagerDialog if open
         if self.download_manager_dialog and self.download_manager_dialog.isVisible():
@@ -1376,10 +1426,10 @@ class Browser(QMainWindow):
 
     def delete_download(self, download_info):
         """
-        Löscht einen Download aus der aktiven Download-Liste.
+        Löscht einen Download aus der gesamten Download-Liste.
         """
         # Stoppe den Thread oder breche den Download ab, falls noch aktiv
-        if download_info["status"] == "Läuft":
+        if download_info["status"] in ["Läuft", "Wartet"]:
             if "worker" in download_info and download_info["worker"]:
                 worker = download_info["worker"]
                 worker.cancel()
@@ -1389,10 +1439,21 @@ class Browser(QMainWindow):
                 download_obj.cancel()
                 print(f"Download abgebrochen und gelöscht: {download_info['filename']}")
 
-        # Entferne den Download aus der Liste
+        # Entferne den Download aus beiden Listen
         if download_info in self.active_downloads_info:
             self.active_downloads_info.remove(download_info)
-            print(f"Download gelöscht: {download_info['filename']}")
+        if download_info in self.all_downloads_info:
+            self.all_downloads_info.remove(download_info)
+        print(f"Download gelöscht: {download_info['filename']}")
+
+        # Überprüfe, ob keine aktiven Downloads mehr vorhanden sind
+        if not self.active_downloads_info:
+            self.download_progress_bar.setVisible(False)
+            self.status.clearMessage()
+        else:
+            # Setze die ProgressBar auf den höchsten Fortschritt der verbleibenden Downloads
+            max_progress = max(dl["progress_percent"] for dl in self.active_downloads_info)
+            self.download_progress_bar.setValue(max_progress)
 
         # Update DownloadManagerDialog if open
         if self.download_manager_dialog and self.download_manager_dialog.isVisible():
@@ -1401,7 +1462,7 @@ class Browser(QMainWindow):
     # -------------- NEU/GEÄNDERT: Extra Methode für YouTube -------------- #
     def handle_youtube_via_yt_dlp(self, youtube_url):
         """
-        Fragt via yt-dlp die verfügbaren Streams (Formate) für das gegebene YouTube-Video ab
+        Fragt via yt_dlp die verfügbaren Streams (Formate) für das gegebene YouTube-Video ab
         und öffnet sie dann wahlweise im VLC-Dialog.
         """
         ydl_opts = {
