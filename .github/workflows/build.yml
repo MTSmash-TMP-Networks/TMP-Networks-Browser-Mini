@@ -332,32 +332,23 @@ jobs:
             echo "public_suffix_list.dat gefunden."
           fi
 
-      - name: List Repository Files
-        run: |
-          echo "Listing all files in the repository:"
-          ls -R
-
-      - name: Display Python Version
-        run: python --version
-
-      - name: List Installed Packages
-        run: pip list
-
-      - name: Display Environment Variables
-        run: |
-          echo "Umgebungsvariablen:"
-          printenv
-
       - name: Create runtime hook for VLC
         run: |
           mkdir -p hooks
-          echo "import os, sys" > hooks/hook-vlc.py
-          echo "def set_ld_library_path():" >> hooks/hook-vlc.py
-          echo "    base_path = getattr(sys, '_MEIPASS', os.path.dirname(os.path.abspath(__file__)))" >> hooks/hook-vlc.py
-          echo "    vlc_lib_path = os.path.join(base_path, 'lib')" >> hooks/hook-vlc.py
-          echo "    if os.path.exists(vlc_lib_path):" >> hooks/hook-vlc.py
-          echo "        os.environ['LD_LIBRARY_PATH'] = vlc_lib_path + ':' + os.environ.get('LD_LIBRARY_PATH', '')" >> hooks/hook-vlc.py
-          echo "set_ld_library_path()" >> hooks/hook-vlc.py
+          cat <<EOF > hooks/hook-vlc.py
+import os, sys
+
+def set_ld_library_path():
+    base_path = getattr(sys, '_MEIPASS', os.path.dirname(os.path.abspath(__file__)))
+    vlc_lib_path = os.path.join(base_path, 'lib')
+    if os.path.exists(vlc_lib_path):
+        os.environ['LD_LIBRARY_PATH'] = vlc_lib_path + ':' + os.environ.get('LD_LIBRARY_PATH', '')
+        print(f"Set LD_LIBRARY_PATH to: {os.environ['LD_LIBRARY_PATH']}")
+    else:
+        print("VLC lib path not found.")
+
+set_ld_library_path()
+EOF
 
       - name: Build Executable
         run: |
