@@ -220,13 +220,23 @@ jobs:
         with:
           python-version: '3.11'
 
-      - name: Install Dependencies
+      - name: Cache pip
+        uses: actions/cache@v3
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-pip-
+
+      - name: Install VLC and Dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y vlc libvlc-dev build-essential pkg-config
+          sudo apt-get install -y vlc libvlc-dev build-essential pkg-config \
+            libxcb-cursor0 libx11-xcb1 libxrender1 libxkbcommon-x11-0 libxcb1
 
-      - name: Verify VLC Installation Path
+      - name: Verify VLC Installation
         run: |
+          # Überprüfen von libvlc.so
           LIBVLC_PATH=$(ldconfig -p | grep libvlc.so | head -n 1 | awk '{print $4}')
           if [ -f "$LIBVLC_PATH" ]; then
             echo "libvlc.so gefunden unter $LIBVLC_PATH."
@@ -235,6 +245,7 @@ jobs:
             exit 1
           fi
 
+          # Überprüfen von libvlccore.so
           LIBVLCCORE_PATH=$(ldconfig -p | grep libvlccore.so | head -n 1 | awk '{print $4}')
           if [ -f "$LIBVLCCORE_PATH" ]; then
             echo "libvlccore.so gefunden unter $LIBVLCCORE_PATH."
@@ -243,7 +254,7 @@ jobs:
             exit 1
           fi
 
-          # Bestimme den korrekten Pfad zu den VLC-Plugins
+          # Bestimmen des Plugins-Pfads
           PLUGINS_PATH=$(dirname "$LIBVLC_PATH")/vlc/plugins
           if [ -d "$PLUGINS_PATH" ]; then
             echo "VLC Plugins gefunden unter $PLUGINS_PATH."
@@ -261,6 +272,7 @@ jobs:
             fi
           fi
 
+          # Exportieren der Pfade als Umgebungsvariablen
           echo "LIBVLC_PATH=$LIBVLC_PATH" >> $GITHUB_ENV
           echo "LIBVLCCORE_PATH=$LIBVLCCORE_PATH" >> $GITHUB_ENV
           echo "PLUGINS_PATH=$PLUGINS_PATH" >> $GITHUB_ENV
