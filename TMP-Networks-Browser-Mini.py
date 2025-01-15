@@ -1007,6 +1007,9 @@ class Browser(QMainWindow):
             QApplication.processEvents()  # Erzwingen der UI-Aktualisierung
             # Verstecke die ProgressBar nach einer kurzen Verzögerung
             QTimer.singleShot(100, lambda: self.download_progress_bar.setVisible(False))
+            # Setze den Thread auf None
+            download_info["thread"] = None
+
         elif state in (
             QWebEngineDownloadRequest.DownloadState.DownloadCancelled,
             QWebEngineDownloadRequest.DownloadState.DownloadInterrupted
@@ -1020,6 +1023,8 @@ class Browser(QMainWindow):
             # Setze die ProgressBar auf 0% und zeige sie kurz an
             self.download_progress_bar.setValue(0)
             QTimer.singleShot(2000, lambda: self.download_progress_bar.setVisible(False))
+            # Setze den Thread auf None
+            download_info["thread"] = None
 
         # Aktualisiere den Download-Manager-Dialog (falls offen)
         if self.download_manager_dialog and self.download_manager_dialog.isVisible():
@@ -1363,10 +1368,15 @@ class Browser(QMainWindow):
         """
         # Stoppe den Thread, falls noch aktiv
         thread = download_info.get("thread")
-        if thread and thread.isRunning():
-            # Signal zum Abbrechen wurde bereits gesendet in cancel_download
-            thread.quit()
-            thread.wait()
+        if thread:
+            try:
+                if thread.isRunning():
+                    # Signal zum Abbrechen wurde bereits gesendet in cancel_download
+                    thread.quit()
+                    thread.wait()
+            except RuntimeError:
+                # Der Thread wurde bereits gelöscht
+                pass
 
         # Entferne den Download aus der Liste
         if download_info in self.active_downloads_info:
@@ -1377,7 +1387,7 @@ class Browser(QMainWindow):
         if self.download_manager_dialog and self.download_manager_dialog.isVisible():
             self.download_manager_dialog.refresh_table()
 
-    # -------------- NEU/GEÄNDERT: Extra Methode für Videos -------------- #
+    # -------------- NEU/GEÄNDERT: Extra Methode für YouTube -------------- #
     def handle_youtube_via_yt_dlp(self, youtube_url):
         """
         Fragt via yt-dlp die verfügbaren Streams (Formate) für das gegebene YouTube-Video ab
