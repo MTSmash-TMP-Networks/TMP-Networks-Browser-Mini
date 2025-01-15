@@ -148,12 +148,12 @@ jobs:
         run: |
           VLC_LIB_DIR="/Applications/VLC.app/Contents/MacOS/lib"
           if [ ! -f "$VLC_LIB_DIR/libvlc.dylib" ]; then
-            echo "Error: libvlc.dylib not found in $VLC_LIB_DIR"
+            echo "Error: libvlc.dylib nicht gefunden in $VLC_LIB_DIR"
             exit 1
           fi
 
           if [ ! -f "$VLC_LIB_DIR/libvlccore.dylib" ]; then
-            echo "Error: libvlccore.dylib not found in $VLC_LIB_DIR"
+            echo "Error: libvlccore.dylib nicht gefunden in $VLC_LIB_DIR"
             exit 1
           fi
 
@@ -189,15 +189,22 @@ jobs:
             exit 1
           fi
 
-          # Erstelle Runtime Hook für VLC
+          # Erstelle Runtime Hook für VLC mit Logging
           mkdir -p hooks
-          echo "import os, sys" > hooks/hook-vlc.py
-          echo "def set_ld_library_path():" >> hooks/hook-vlc.py
-          echo "    base_path = getattr(sys, '_MEIPASS', os.path.dirname(os.path.abspath(__file__)))" >> hooks/hook-vlc.py
-          echo "    vlc_lib_path = os.path.join(base_path, 'lib')" >> hooks/hook-vlc.py
-          echo "    if os.path.exists(vlc_lib_path):" >> hooks/hook-vlc.py
-          echo "        os.environ['DYLD_LIBRARY_PATH'] = vlc_lib_path + ':' + os.environ.get('DYLD_LIBRARY_PATH', '')" >> hooks/hook-vlc.py
-          echo "set_ld_library_path()" >> hooks/hook-vlc.py
+          cat <<EOF > hooks/hook-vlc.py
+import os, sys
+
+def set_dyld_library_path():
+    base_path = getattr(sys, '_MEIPASS', os.path.dirname(os.path.abspath(__file__)))
+    vlc_lib_path = os.path.join(base_path, 'lib')
+    if os.path.exists(vlc_lib_path):
+        os.environ['DYLD_LIBRARY_PATH'] = vlc_lib_path + ':' + os.environ.get('DYLD_LIBRARY_PATH', '')
+        print(f"Set DYLD_LIBRARY_PATH to: {os.environ['DYLD_LIBRARY_PATH']}")
+    else:
+        print("VLC lib path not found.")
+
+set_dyld_library_path()
+EOF
 
           pyinstaller --windowed \
             --icon=assets/logo.icns \
@@ -345,7 +352,7 @@ def set_ld_library_path():
         os.environ['LD_LIBRARY_PATH'] = vlc_lib_path + ':' + os.environ.get('LD_LIBRARY_PATH', '')
         print(f"Set LD_LIBRARY_PATH to: {os.environ['LD_LIBRARY_PATH']}")
     else:
-        print("VLC lib path not found.")
+        print("VLC lib path nicht gefunden.")
 
 set_ld_library_path()
 EOF
@@ -367,12 +374,16 @@ EOF
             --runtime-hook hooks/hook-vlc.py \
             TMP-Networks-Browser-Mini.py
 
+          # Überprüfe den Inhalt von dist/
           echo "Inhalt von dist/:"
-          ls -R dist/
+          ls -la dist/
 
       - name: Check Library Dependencies
         run: |
+          echo "Überprüfe Abhängigkeiten der gebündelten Executable:"
           ldd dist/TMP-Networks-Browser-Mini
+
+          echo "Überprüfe Abhängigkeiten aller .so Dateien im dist Verzeichnis:"
           find dist -name "*.so" -exec ldd {} \;
 
       - name: Upload Build Artifact
@@ -381,3 +392,63 @@ EOF
           name: TMP-Networks-Browser-Mini-Linux-Executable
           path: dist/TMP-Networks-Browser-Mini
           if-no-files-found: warn
+
+  # ------------------------------
+  # 4) TEST VLC LOAD ON LINUX (Optional)
+  # ------------------------------
+  test-vlc-linux:
+    runs-on: ubuntu-24.04
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v3
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+
+      - name: Install VLC and Dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y vlc libvlc-dev
+
+      - name: Install Python Dependencies
+        run: |
+          pip install --upgrade pip
+          pip install pyinstaller vlc
+
+      - name: Create runtime hook for VLC
+        run: |
+          mkdir -p hooks
+          cat <<EOF > hooks/hook-vlc.py
+import os, sys
+
+def set_ld_library_path():
+    base_path = getattr(sys, '_MEIPASS', os.path.dirname(os.path.abspath(__file__)))
+    vlc_lib_path = os.path.join(base_path, 'lib')
+    if os.path.exists(vlc_lib_path):
+        os.environ['LD_LIBRARY_PATH'] = vlc_lib_path + ':' + os.environ.get('LD_LIBRARY_PATH', '')
+        print(f"Set LD_LIBRARY_PATH to: {os.environ['LD_LIBRARY_PATH']}")
+    else:
+        print("VLC lib path not found.")
+
+set_ld_library_path()
+EOF
+
+      - name: Build Test Executable
+        run: |
+          pyinstaller --onefile \
+            --add-binary "/usr/lib/x86_64-linux-gnu/libvlc.so:lib" \
+            --add-binary "/usr/lib/x86_64-linux-gnu/libvlccore.so:lib" \
+            --runtime-hook hooks/hook-vlc.py \
+            test_vlc.py
+
+      - name: Run Test Executable
+        run: |
+          ./dist/test_vlc
+
+      - name: Upload Test Logs
+        if: always()
+        run: |
+          echo "Test abgeschlossen."
