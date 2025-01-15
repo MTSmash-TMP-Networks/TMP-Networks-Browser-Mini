@@ -148,12 +148,12 @@ jobs:
         run: |
           VLC_LIB_DIR="/Applications/VLC.app/Contents/MacOS/lib"
           if [ ! -f "$VLC_LIB_DIR/libvlc.dylib" ]; then
-            echo "Error: libvlc.dylib nicht gefunden in $VLC_LIB_DIR"
+            echo "Error: libvlc.dylib not found in $VLC_LIB_DIR"
             exit 1
           fi
 
           if [ ! -f "$VLC_LIB_DIR/libvlccore.dylib" ]; then
-            echo "Error: libvlccore.dylib nicht gefunden in $VLC_LIB_DIR"
+            echo "Error: libvlccore.dylib not found in $VLC_LIB_DIR"
             exit 1
           fi
 
@@ -189,22 +189,15 @@ jobs:
             exit 1
           fi
 
-          # Erstelle Runtime Hook für VLC mit Logging
+          # Erstelle Runtime Hook für VLC
           mkdir -p hooks
-          cat <<EOF > hooks/hook-vlc.py
-import os, sys
-
-def set_dyld_library_path():
-    base_path = getattr(sys, '_MEIPASS', os.path.dirname(os.path.abspath(__file__)))
-    vlc_lib_path = os.path.join(base_path, 'lib')
-    if os.path.exists(vlc_lib_path):
-        os.environ['DYLD_LIBRARY_PATH'] = vlc_lib_path + ':' + os.environ.get('DYLD_LIBRARY_PATH', '')
-        print(f"Set DYLD_LIBRARY_PATH to: {os.environ['DYLD_LIBRARY_PATH']}")
-    else:
-        print("VLC lib path not found.")
-
-set_dyld_library_path()
-EOF
+          echo "import os, sys" > hooks/hook-vlc.py
+          echo "def set_ld_library_path():" >> hooks/hook-vlc.py
+          echo "    base_path = getattr(sys, '_MEIPASS', os.path.dirname(os.path.abspath(__file__)))" >> hooks/hook-vlc.py
+          echo "    vlc_lib_path = os.path.join(base_path, 'lib')" >> hooks/hook-vlc.py
+          echo "    if os.path.exists(vlc_lib_path):" >> hooks/hook-vlc.py
+          echo "        os.environ['DYLD_LIBRARY_PATH'] = vlc_lib_path + ':' + os.environ.get('DYLD_LIBRARY_PATH', '')" >> hooks/hook-vlc.py
+          echo "set_ld_library_path()" >> hooks/hook-vlc.py
 
           pyinstaller --windowed \
             --icon=assets/logo.icns \
@@ -339,23 +332,32 @@ EOF
             echo "public_suffix_list.dat gefunden."
           fi
 
+      - name: List Repository Files
+        run: |
+          echo "Listing all files in the repository:"
+          ls -R
+
+      - name: Display Python Version
+        run: python --version
+
+      - name: List Installed Packages
+        run: pip list
+
+      - name: Display Environment Variables
+        run: |
+          echo "Umgebungsvariablen:"
+          printenv
+
       - name: Create runtime hook for VLC
         run: |
           mkdir -p hooks
-          cat <<EOF > hooks/hook-vlc.py
-import os, sys
-
-def set_ld_library_path():
-    base_path = getattr(sys, '_MEIPASS', os.path.dirname(os.path.abspath(__file__)))
-    vlc_lib_path = os.path.join(base_path, 'lib')
-    if os.path.exists(vlc_lib_path):
-        os.environ['LD_LIBRARY_PATH'] = vlc_lib_path + ':' + os.environ.get('LD_LIBRARY_PATH', '')
-        print(f"Set LD_LIBRARY_PATH to: {os.environ['LD_LIBRARY_PATH']}")
-    else:
-        print("VLC lib path nicht gefunden.")
-
-set_ld_library_path()
-EOF
+          echo "import os, sys" > hooks/hook-vlc.py
+          echo "def set_ld_library_path():" >> hooks/hook-vlc.py
+          echo "    base_path = getattr(sys, '_MEIPASS', os.path.dirname(os.path.abspath(__file__)))" >> hooks/hook-vlc.py
+          echo "    vlc_lib_path = os.path.join(base_path, 'lib')" >> hooks/hook-vlc.py
+          echo "    if os.path.exists(vlc_lib_path):" >> hooks/hook-vlc.py
+          echo "        os.environ['LD_LIBRARY_PATH'] = vlc_lib_path + ':' + os.environ.get('LD_LIBRARY_PATH', '')" >> hooks/hook-vlc.py
+          echo "set_ld_library_path()" >> hooks/hook-vlc.py
 
       - name: Build Executable
         run: |
@@ -374,16 +376,12 @@ EOF
             --runtime-hook hooks/hook-vlc.py \
             TMP-Networks-Browser-Mini.py
 
-          # Überprüfe den Inhalt von dist/
           echo "Inhalt von dist/:"
-          ls -la dist/
+          ls -R dist/
 
       - name: Check Library Dependencies
         run: |
-          echo "Überprüfe Abhängigkeiten der gebündelten Executable:"
           ldd dist/TMP-Networks-Browser-Mini
-
-          echo "Überprüfe Abhängigkeiten aller .so Dateien im dist Verzeichnis:"
           find dist -name "*.so" -exec ldd {} \;
 
       - name: Upload Build Artifact
