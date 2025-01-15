@@ -27,7 +27,7 @@ from PyQt6.QtGui import QAction, QFont
 from PyQt6.QtCore import QUrl, QSize, QObject, pyqtSlot, pyqtSignal, Qt, QTimer, QThread
 from PyQt6.QtWebEngineWidgets import QWebEngineView
 from PyQt6.QtWebChannel import QWebChannel
-from PyQt6.QtWebEngineCore import QWebEnginePage, QWebEngineSettings, QWebEngineDownloadRequest
+from PyQt6.QtWebEngineCore import QWebEnginePage, QWebEngineSettings, QWebEngineDownloadRequest, QWebEngineProfile
 
 # AppDirs für plattformübergreifende Pfadverwaltung
 from appdirs import AppDirs
@@ -217,8 +217,8 @@ class VLCPlayerDialog(QDialog):
         super().closeEvent(event)
 
 class MyWebEnginePage(QWebEnginePage):
-    def __init__(self, parent=None):
-        super().__init__(parent)
+    def __init__(self, profile, parent=None):
+        super().__init__(profile, parent)
         
         # Damit JavaScript auf die Zwischenablage zugreifen darf:
         self.settings().setAttribute(
@@ -244,12 +244,12 @@ class MyWebEnginePage(QWebEnginePage):
                                       QWebEnginePage.PermissionPolicy.PermissionDeniedByUser)
 
 class CustomWebEngineView(QWebEngineView):
-    def __init__(self, browser):
+    def __init__(self, browser, profile):
         super().__init__()
         self.browser = browser
         
-        # Unsere eigene Page-Klasse verwenden:
-        custom_page = MyWebEnginePage(self)
+        # Unsere eigene Page-Klasse verwenden mit dem angegebenen Profil:
+        custom_page = MyWebEnginePage(profile, self)
         self.setPage(custom_page)
 
     def createWindow(self, requested_window_type):
@@ -261,7 +261,7 @@ class CustomWebEngineView(QWebEngineView):
             QMessageBox.StandardButton.No
         )
         if reply == QMessageBox.StandardButton.Yes:
-            popup_browser = CustomWebEngineView(self.browser)
+            popup_browser = CustomWebEngineView(self.browser, self.browser.profile)
             i = self.browser.tabs.addTab(popup_browser, "Neues Fenster")
             self.browser.tabs.setCurrentIndex(i)
             return popup_browser
@@ -830,6 +830,11 @@ class Browser(QMainWindow):
         self.download_progress_bar.setRange(0, 100)
         self.status.addPermanentWidget(self.download_progress_bar)
 
+        # Erstelle ein QWebEngineProfile mit persistentem Speicherpfad
+        self.profile = QWebEngineProfile("TMPNetworksBrowserProfile", self)
+        self.profile.setPersistentStoragePath(json_dir)
+        self.profile.setPersistentCookiesPolicy(QWebEngineProfile.PersistentCookiesPolicy.ForcePersistentCookies)
+
         # Erster Tab
         self.add_new_tab(QUrl('https://www.google.com'), 'Startseite')
 
@@ -873,7 +878,7 @@ class Browser(QMainWindow):
     def add_new_tab(self, qurl=None, label="Neue Seite"):
         if not qurl:
             qurl = QUrl("https://www.google.com")
-        browser = CustomWebEngineView(self)
+        browser = CustomWebEngineView(self, self.profile)
         browser.setUrl(qurl)
         browser.page().profile().downloadRequested.connect(self.on_downloadRequested)
         browser.loadFinished.connect(lambda _, b=browser: self.check_credentials(b))
@@ -1458,6 +1463,195 @@ class Browser(QMainWindow):
         # Update DownloadManagerDialog if open
         if self.download_manager_dialog and self.download_manager_dialog.isVisible():
             self.download_manager_dialog.refresh_table()
+
+    # -------------- NEU/GEÄNDERT: Extra Methode für YouTube -------------- #
+    def handle_youtube_via_yt_dlp(self, youtube_url):
+        """
+        Fragt via yt_dlp die verfügbaren Streams (Formate) für das gegebene YouTube-Video ab
+        und öffnet sie dann wahlweise im VLC-Dialog.
+        """
+        ydl_opts = {
+            'quiet': True,
+            'no_warnings': True,
+            'format': 'best'  # oder 'bestvideo+bestaudio/best' je nach Bedarf
+        }
+        try:
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                info = ydl.extract_info(youtube_url, download=False)
+                formats = info.get('formats', [])
+                if not formats:
+                    QMessageBox.warning(self, "Fehler", "Keine abspielbaren Formate gefunden.")
+                    return
+
+                # Alle Formate auflisten
+                variant_list = []
+                for f in formats:
+                    resolution = f.get('resolution') or f"{f.get('width','?')}x{f.get('height','?')}"
+                    label = f"{resolution} ({f.get('ext','?')}, {f.get('format_id','?')}, {f.get('fps','?')}fps)"
+                    direct_url = f.get('url')
+                    if direct_url:
+                        variant_list.append((label, direct_url))
+
+                if not variant_list:
+                    QMessageBox.warning(self, "Fehler", "Keine abspielbaren Direct-URLs gefunden.")
+                    return
+
+                # Wenn es nur ein Format gibt, direkt abspielen:
+                if len(variant_list) == 1:
+                    self.play_video_in_vlc(variant_list[0][1])
+                    return
+
+                # Sonst: Dialog zur Auswahl des Formats
+                dlg = QDialog(self)
+                dlg.setWindowTitle("Stream auswählen")
+                dlg.resize(400, 300)
+                layout = QVBoxLayout(dlg)
+
+                info_label = QLabel(f"Formate für: {info.get('title', youtube_url)}")
+                layout.addWidget(info_label)
+
+                list_widget = QListWidget()
+                for label_text, url in variant_list:
+                    item = QListWidgetItem(label_text)
+                    item.setData(Qt.ItemDataRole.UserRole, url)
+                    list_widget.addItem(item)
+                layout.addWidget(list_widget)
+
+                btn_layout = QHBoxLayout()
+                ok_btn = QPushButton("Abspielen")
+                cancel_btn = QPushButton("Abbrechen")
+                btn_layout.addWidget(ok_btn)
+                btn_layout.addWidget(cancel_btn)
+                layout.addLayout(btn_layout)
+
+                def on_ok():
+                    item = list_widget.currentItem()
+                    if item:
+                        chosen_url = item.data(Qt.ItemDataRole.UserRole)
+                        self.play_video_in_vlc(chosen_url)
+                    dlg.accept()
+
+                def on_cancel():
+                    dlg.reject()
+
+                ok_btn.clicked.connect(on_ok)
+                cancel_btn.clicked.connect(on_cancel)
+
+                dlg.exec()
+
+        except Exception as e:
+            QMessageBox.warning(self, "YouTube-Fehler", f"Fehler beim Abrufen der Streams:\n{e}")
+
+    # -------------- NEU/GEÄNDERT: Scan & Play-Methode anpassen -------------- #
+    def scan_and_play_videos(self):
+        current_url = self.tabs.currentWidget().url().toString()
+
+        # Jetzt für alle Domains yt_dlp einsetzen
+        self.handle_youtube_via_yt_dlp(current_url)
+
+    def play_video_in_vlc(self, video_url):
+        dlg = VLCPlayerDialog(video_url, self)
+        dlg.exec()
+
+    # -------------- NEU: show_whois_info Methode -------------- #
+    def show_whois_info(self):
+        current_url = self.tabs.currentWidget().url().toString()
+        domain = QUrl(current_url).host()
+        if not domain:
+            QMessageBox.warning(self, "Fehler", "Keine gültige Domain gefunden.")
+            return
+
+        try:
+            whois_info = whois.whois(domain)
+            # Formatieren der WHOIS-Daten
+            whois_str = ""
+            for key, value in whois_info.items():
+                whois_str += f"{key}: {value}\n"
+
+            # IP Informationen abrufen
+            ip = socket.gethostbyname(domain)
+            ip_info = f"IP-Adresse: {ip}"
+
+            # Erstelle und zeige den WhoisDialog
+            dlg = WhoisDialog(whois_str, ip_info, self)
+            dlg.exec()
+
+        except Exception as e:
+            QMessageBox.warning(self, "Fehler", f"Fehler beim Abrufen der WHOIS-Informationen:\n{e}")
+
+    # -------------- NEU/GEÄNDERT: Download-Video-Methode -------------- #
+    def download_video_url(self, url):
+        # Verwende yt_dlp, um Informationen zum Video abzurufen und die Dateierweiterung zu bestimmen
+        ydl_opts = {
+            'quiet': True,
+            'no_warnings': True,
+            'skip_download': True,
+        }
+        try:
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                info = ydl.extract_info(url, download=False)
+                ext = info.get('ext', 'mp4')  # Standard auf mp4, falls nicht gefunden
+                title = info.get('title', 'downloaded_video')
+                # Entferne ungültige Zeichen aus dem Titel für den Dateinamen
+                title = re.sub(r'[\\/*?:"<>|]', "", title)
+                default_filename = f"{title}.{ext}"
+        except Exception as e:
+            QMessageBox.warning(self, "Download-Fehler", f"Fehler beim Abrufen der Videoinformationen:\n{e}")
+            return
+
+        # Frage den Benutzer nach dem Speicherort mit der korrekten Erweiterung
+        save_path, _ = QFileDialog.getSaveFileName(
+            self,
+            "Video speichern unter",
+            default_filename,
+            f"Video Dateien (*.{ext});;Alle Dateien (*)"
+        )
+        if not save_path:
+            return
+
+        # Erstelle den Download-Eintrag in beiden Listen
+        download_info = {
+            "filename": os.path.basename(save_path),
+            "target_path": save_path,
+            "progress_percent": 0,
+            "status": "Wartet",
+            "timer": None,
+            "worker": None,
+            "thread": None
+        }
+        self.all_downloads_info.append(download_info)
+        self.active_downloads_info.append(download_info)
+
+        # Aktualisiere den Download-Manager-Dialog, falls geöffnet
+        if self.download_manager_dialog and self.download_manager_dialog.isVisible():
+            self.download_manager_dialog.refresh_table()
+
+        # Erstelle einen neuen QThread
+        thread = QThread()
+        # Erstelle einen neuen Worker
+        worker = DownloadWorker(url, save_path)
+        worker.moveToThread(thread)
+
+        # Verbinde Signale und Slots
+        thread.started.connect(worker.run)
+        worker.progress.connect(lambda p: self.update_download_progress(download_info, p))
+        worker.status.connect(lambda s: self.update_download_status(download_info, s))
+        worker.error.connect(lambda e: self.handle_download_error(download_info, e))
+        worker.finished.connect(thread.quit)
+        worker.finished.connect(worker.deleteLater)
+        worker.finished.connect(lambda: self.on_download_finished(download_info))
+        thread.finished.connect(thread.deleteLater)
+
+        # Starte den Thread
+        thread.start()
+
+        # Speichere Referenzen, um Garbage Collection zu verhindern
+        download_info["worker"] = worker
+        download_info["thread"] = thread
+
+        # Aktualisiere die Statusleiste und ProgressBar
+        self.download_progress_bar.setVisible(True)
+        self.status.showMessage(f"Download gestartet: {download_info['filename']}")
 
     # -------------- NEU/GEÄNDERT: Extra Methode für YouTube -------------- #
     def handle_youtube_via_yt_dlp(self, youtube_url):
