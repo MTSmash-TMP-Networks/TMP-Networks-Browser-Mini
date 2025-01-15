@@ -627,7 +627,7 @@ class DownloadManagerDialog(QDialog):
     def refresh_table(self):
         if not self.browser:
             return
-        downloads = self.browser.all_downloads_info  # Zugriff auf alle Downloads
+        downloads = self.browser.active_downloads_info  # Liste mit dicts
         self.table.setRowCount(len(downloads))
 
         for row, dl in enumerate(downloads):
@@ -704,9 +704,8 @@ class Browser(QMainWindow):
         if "history" not in self.data:
             self.data["history"] = []
 
-        # Listen für Downloads:
-        self.active_downloads_info = []  # Liste von Dicts, die aktive Downloads enthalten
-        self.all_downloads_info = []     # Liste von Dicts, die alle Downloads enthalten
+        # Wir wollen auch Download-Infos speichern:
+        self.active_downloads_info = []  # Liste von Dicts, die unsere Download-Infos enthalten
 
         self.tabs = QTabWidget()
         self.tabs.setDocumentMode(True)
@@ -958,8 +957,6 @@ class Browser(QMainWindow):
                     "timer": None  # Hinzugefügt: Timer für das Polling
                 }
                 self.active_downloads_info.append(download_info)
-                # Gleichzeitig zum all_downloads_info hinzufügen
-                self.all_downloads_info.append(download_info)
                 print(f"Download gestartet: {filename_only}")
 
                 # Starten des Polling-Timers für den Download-Fortschritt
@@ -1009,12 +1006,13 @@ class Browser(QMainWindow):
             self.download_progress_bar.setValue(100)
             self.download_progress_bar.setVisible(True)  # Sicherstellen, dass es sichtbar ist
             QApplication.processEvents()  # Erzwingen der UI-Aktualisierung
-            # Entferne den Download-Eintrag aus aktiven Downloads, aber behalte ihn in all_downloads_info
-            if download_info in self.active_downloads_info:
-                self.active_downloads_info.remove(download_info)
-            # Prüfe, ob keine weiteren aktiven Downloads mehr vorhanden sind, dann verstecke die ProgressBar
+            # Entferne den Download-Eintrag, da er abgeschlossen ist
+            self.active_downloads_info.remove(download_info)
+
+            # Überprüfe, ob keine aktiven Downloads mehr vorhanden sind
             if not self.active_downloads_info:
-                QTimer.singleShot(1000, lambda: self.download_progress_bar.setVisible(False))
+                self.download_progress_bar.setVisible(False)
+                self.status.clearMessage()
 
         elif state in (
             QWebEngineDownloadRequest.DownloadState.DownloadCancelled,
@@ -1028,86 +1026,17 @@ class Browser(QMainWindow):
                 download_info["timer"].stop()
             # Setze die ProgressBar auf 0% und zeige sie kurz an
             self.download_progress_bar.setValue(0)
-            QTimer.singleShot(2000, lambda: self.download_progress_bar.setVisible(False))
-            # Entferne den Download-Eintrag aus aktiven Downloads, aber behalte ihn in all_downloads_info
-            if download_info in self.active_downloads_info:
-                self.active_downloads_info.remove(download_info)
-
-        # Aktualisiere den Download-Manager-Dialog (falls offen)
-        if self.download_manager_dialog and self.download_manager_dialog.isVisible():
-            self.download_manager_dialog.refresh_table()
-
-    def handle_download_finished(self, download_info):
-        """
-        Entfernt den Download-Eintrag aus active_downloads_info nach Abschluss eines Downloads (für Video-Downloads).
-        Der Download-Eintrag bleibt in all_downloads_info, sodass der Download-Manager ihn weiterhin anzeigen kann.
-        """
-        if download_info in self.active_downloads_info:
-            self.active_downloads_info.remove(download_info)
-            print(f"Download abgeschlossen und aus aktiven Downloads entfernt: {download_info['filename']}")
-        # Aktualisiere die ProgressBar auf 100%
-        self.download_progress_bar.setValue(100)
-        self.download_progress_bar.setVisible(True)
-        # Prüfe, ob keine weiteren aktiven Downloads mehr vorhanden sind, dann verstecke die ProgressBar
-        if not self.active_downloads_info:
-            QTimer.singleShot(1000, lambda: self.download_progress_bar.setVisible(False))
-        # Aktualisiere den Download-Manager-Dialog (falls offen)
-        if self.download_manager_dialog and self.download_manager_dialog.isVisible():
-            self.download_manager_dialog.refresh_table()
-
-    def cancel_download(self, download_info):
-        """
-        Bricht einen laufenden Download ab.
-        """
-        if download_info["status"] == "Läuft":
-            if "worker" in download_info and download_info["worker"]:
-                worker = download_info["worker"]
-                worker.cancel()
-                print(f"Download abgebrochen: {download_info['filename']}")
-            elif "download_obj" in download_info and download_info["download_obj"]:
-                download_obj = download_info["download_obj"]
-                download_obj.cancel()
-                print(f"Download abgebrochen: {download_info['filename']}")
-        elif download_info["status"] == "Wartet":
-            # Noch nicht gestartet, einfach entfernen aus aktiven Downloads
-            if download_info in self.active_downloads_info:
-                self.active_downloads_info.remove(download_info)
-                print(f"Download entfernt: {download_info['filename']}")
-
-        # Update DownloadManagerDialog if open
-        if self.download_manager_dialog and self.download_manager_dialog.isVisible():
-            self.download_manager_dialog.refresh_table()
-
-    def delete_download(self, download_info):
-        """
-        Löscht einen Download aus der aktiven Download-Liste und aus der Liste aller Downloads.
-        """
-        # Stoppe den Thread oder breche den Download ab, falls noch aktiv
-        if download_info["status"] == "Läuft":
-            if "worker" in download_info and download_info["worker"]:
-                worker = download_info["worker"]
-                worker.cancel()
-                print(f"Download abgebrochen und gelöscht: {download_info['filename']}")
-            elif "download_obj" in download_info and download_info["download_obj"]:
-                download_obj = download_info["download_obj"]
-                download_obj.cancel()
-                print(f"Download abgebrochen und gelöscht: {download_info['filename']}")
-
-        # Entferne den Download aus der Liste aller Downloads
-        if download_info in self.all_downloads_info:
-            self.all_downloads_info.remove(download_info)
-            print(f"Download gelöscht: {download_info['filename']}")
-
-        # Entferne den Download aus aktiven Downloads, falls noch vorhanden
-        if download_info in self.active_downloads_info:
+            self.download_progress_bar.setVisible(True)
+            print(f"Download Fortschritt: 0% - {download_info['filename']}")
+            # Entferne den Download-Eintrag, da er fehlgeschlagen oder abgebrochen ist
             self.active_downloads_info.remove(download_info)
 
-        # Aktualisiere die ProgressBar entsprechend
-        if not self.active_downloads_info:
-            self.download_progress_bar.setVisible(False)
-            self.download_progress_bar.setValue(0)
+            # Überprüfe, ob keine aktiven Downloads mehr vorhanden sind
+            if not self.active_downloads_info:
+                self.download_progress_bar.setVisible(False)
+                self.status.clearMessage()
 
-        # Update DownloadManagerDialog if open
+        # Aktualisiere den Download-Manager-Dialog (falls offen)
         if self.download_manager_dialog and self.download_manager_dialog.isVisible():
             self.download_manager_dialog.refresh_table()
 
@@ -1376,7 +1305,6 @@ class Browser(QMainWindow):
             "thread": None
         }
         self.active_downloads_info.append(download_info)
-        self.all_downloads_info.append(download_info)
 
         # Aktualisiere den Download-Manager-Dialog, falls geöffnet
         if self.download_manager_dialog and self.download_manager_dialog.isVisible():
@@ -1394,7 +1322,6 @@ class Browser(QMainWindow):
         worker.status.connect(lambda s: self.update_download_status(download_info, s))
         worker.error.connect(lambda e: self.handle_download_error(download_info, e))
         worker.finished.connect(thread.quit)
-        worker.finished.connect(partial(self.handle_download_finished, download_info))  # Verbindung hinzufügen
         worker.finished.connect(worker.deleteLater)
         thread.finished.connect(thread.deleteLater)
 
@@ -1424,34 +1351,6 @@ class Browser(QMainWindow):
 
     def handle_download_error(self, download_info, error_message):
         QMessageBox.warning(self, "Download-Fehler", f"Fehler beim Herunterladen von {download_info['filename']}:\n{error_message}")
-        # Setze den Status auf "Fehlgeschlagen" und entferne den Download-Eintrag aus active_downloads_info
-        download_info["status"] = "Fehlgeschlagen"
-        if download_info in self.active_downloads_info:
-            self.active_downloads_info.remove(download_info)
-        # Aktualisiere die ProgressBar auf 0%
-        self.download_progress_bar.setValue(0)
-        QTimer.singleShot(2000, lambda: self.download_progress_bar.setVisible(False))
-        # Update DownloadManagerDialog if open
-        if self.download_manager_dialog and self.download_manager_dialog.isVisible():
-            self.download_manager_dialog.refresh_table()
-
-    def handle_download_finished(self, download_info):
-        """
-        Entfernt den Download-Eintrag aus active_downloads_info nach Abschluss eines Downloads (für Video-Downloads).
-        Der Download-Eintrag bleibt in all_downloads_info, sodass der Download-Manager ihn weiterhin anzeigen kann.
-        """
-        if download_info in self.active_downloads_info:
-            self.active_downloads_info.remove(download_info)
-            print(f"Download abgeschlossen und aus aktiven Downloads entfernt: {download_info['filename']}")
-        # Aktualisiere die ProgressBar auf 100%
-        self.download_progress_bar.setValue(100)
-        self.download_progress_bar.setVisible(True)
-        # Prüfe, ob keine weiteren aktiven Downloads mehr vorhanden sind, dann verstecke die ProgressBar
-        if not self.active_downloads_info:
-            QTimer.singleShot(1000, lambda: self.download_progress_bar.setVisible(False))
-        # Aktualisiere den Download-Manager-Dialog (falls offen)
-        if self.download_manager_dialog and self.download_manager_dialog.isVisible():
-            self.download_manager_dialog.refresh_table()
 
     def cancel_download(self, download_info):
         """
@@ -1467,10 +1366,9 @@ class Browser(QMainWindow):
                 download_obj.cancel()
                 print(f"Download abgebrochen: {download_info['filename']}")
         elif download_info["status"] == "Wartet":
-            # Noch nicht gestartet, einfach entfernen aus aktiven Downloads
-            if download_info in self.active_downloads_info:
-                self.active_downloads_info.remove(download_info)
-                print(f"Download entfernt: {download_info['filename']}")
+            # Noch nicht gestartet, einfach entfernen
+            self.active_downloads_info.remove(download_info)
+            print(f"Download entfernt: {download_info['filename']}")
 
         # Update DownloadManagerDialog if open
         if self.download_manager_dialog and self.download_manager_dialog.isVisible():
@@ -1478,7 +1376,7 @@ class Browser(QMainWindow):
 
     def delete_download(self, download_info):
         """
-        Löscht einen Download aus der aktiven Download-Liste und aus der Liste aller Downloads.
+        Löscht einen Download aus der aktiven Download-Liste.
         """
         # Stoppe den Thread oder breche den Download ab, falls noch aktiv
         if download_info["status"] == "Läuft":
@@ -1491,417 +1389,10 @@ class Browser(QMainWindow):
                 download_obj.cancel()
                 print(f"Download abgebrochen und gelöscht: {download_info['filename']}")
 
-        # Entferne den Download aus der Liste aller Downloads
-        if download_info in self.all_downloads_info:
-            self.all_downloads_info.remove(download_info)
+        # Entferne den Download aus der Liste
+        if download_info in self.active_downloads_info:
+            self.active_downloads_info.remove(download_info)
             print(f"Download gelöscht: {download_info['filename']}")
-
-        # Entferne den Download aus aktiven Downloads, falls noch vorhanden
-        if download_info in self.active_downloads_info:
-            self.active_downloads_info.remove(download_info)
-
-        # Aktualisiere die ProgressBar entsprechend
-        if not self.active_downloads_info:
-            self.download_progress_bar.setVisible(False)
-            self.download_progress_bar.setValue(0)
-
-        # Update DownloadManagerDialog if open
-        if self.download_manager_dialog and self.download_manager_dialog.isVisible():
-            self.download_manager_dialog.refresh_table()
-
-    # -------------- Favoriten -------------- #
-    def add_favorite(self):
-        current_url = self.tabs.currentWidget().url().toString()
-        current_title = self.tabs.currentWidget().page().title()
-        if any(fav["url"] == current_url for fav in self.data["favorites"]):
-            QMessageBox.information(self, "Info", "Diese Seite ist bereits als Favorit gespeichert.")
-            return
-        self.data["favorites"].append({"title": current_title, "url": current_url})
-        self.save_data()
-        self.update_favorites_menu()
-        QMessageBox.information(self, "Erfolg", "Favorit hinzugefügt.")
-
-    def update_favorites_menu(self):
-        """Aktualisiert das 'Favoriten'-Menü, damit man jeden Eintrag öffnen oder löschen kann."""
-        actions = self.fav_menu.actions()
-        # Die ersten Einträge: 0=Favorit hinzufügen, 1=Separator, 2=Favoriten verwalten
-        # Also entfernen wir alles danach
-        while len(actions) > 3:
-            self.fav_menu.removeAction(actions[-1])
-            actions = self.fav_menu.actions()
-
-        # Für jeden Favoriten ein Untermenü anlegen
-        for fav in sorted(self.data["favorites"], key=lambda x: x["title"]):
-            submenu = QMenu(fav["title"], self)
-
-            open_action = QAction("Öffnen", self)
-            open_action.setData(fav["url"])
-            open_action.triggered.connect(self.navigate_to_favorite)
-            submenu.addAction(open_action)
-
-            delete_action = QAction("Löschen ❌", self)
-            # Verwende eine Funktion mit Parameter, um das richtige Favorit-Objekt zu übergeben
-            delete_action.triggered.connect(lambda checked, f=fav: self.delete_favorite_directly(f))
-            submenu.addAction(delete_action)
-
-            self.fav_menu.addMenu(submenu)
-
-    def delete_favorite_directly(self, fav):
-        reply = QMessageBox.question(
-            self,
-            "Löschen bestätigen",
-            f"Sollen der Favorit '{fav['title']}' wirklich gelöscht werden?",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-            QMessageBox.StandardButton.No
-        )
-        if reply == QMessageBox.StandardButton.Yes:
-            self.data["favorites"] = [x for x in self.data["favorites"] if x != fav]
-            self.save_data()
-            self.update_favorites_menu()
-            QMessageBox.information(self, "Erfolg", f"Favorit '{fav['title']}' gelöscht.")
-
-    def navigate_to_favorite(self):
-        """Öffnet den Favoriten im aktuellen Tab."""
-        action = self.sender()
-        if action:
-            url = action.data()
-            self.tabs.currentWidget().setUrl(QUrl(url))
-
-    def manage_favorites(self):
-        if not self.data["favorites"]:
-            QMessageBox.information(self, "Info", "Keine gespeicherten Favoriten vorhanden.")
-            return
-        dlg = FavoritesManagerDialog(self, favorites_list=self.data["favorites"])
-        if dlg.exec() == QDialog.DialogCode.Accepted:
-            self.data["favorites"] = dlg.favorites
-            self.save_data()
-            self.update_favorites_menu()
-
-    # -------------- Passwörter -------------- #
-    def save_credentials_for_current_page(self):
-        current_url = self.tabs.currentWidget().url().toString()
-        domain = QUrl(current_url).host()
-        dlg = LoginDialog(self)
-        if dlg.exec() == QDialog.DialogCode.Accepted:
-            username, password = dlg.get_credentials()
-            if username and password:
-                self.data["credentials"][domain] = {"username": username, "password": password}
-                self.save_data()
-                QMessageBox.information(self, "Erfolg", f"Zugangsdaten für {domain} gespeichert.")
-            else:
-                QMessageBox.warning(self, "Warnung", "Benutzername und Passwort dürfen nicht leer sein.")
-
-    def view_credentials(self):
-        if not self.data["credentials"]:
-            QMessageBox.information(self, "Info", "Keine gespeicherten Zugangsdaten vorhanden.")
-            return
-        creds_text = ""
-        for domain, creds in sorted(self.data["credentials"].items()):
-            creds_text += (
-                f"Domain: {domain}\n"
-                f"Benutzername: {creds['username']}\n"
-                f"Passwort: {creds['password']}\n\n"
-            )
-        creds_dialog = QDialog(self)
-        creds_dialog.setWindowTitle("Gespeicherte Zugangsdaten")
-        creds_dialog.resize(400, 300)
-        layout = QVBoxLayout()
-        creds_label = QLabel(creds_text)
-        creds_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
-        layout.addWidget(creds_label)
-        close_btn = QPushButton("Schließen")
-        close_btn.clicked.connect(creds_dialog.accept)
-        layout.addWidget(close_btn)
-        creds_dialog.setLayout(layout)
-        creds_dialog.exec()
-
-    def manage_credentials(self):
-        if not self.data["credentials"]:
-            QMessageBox.information(self, "Info", "Keine gespeicherten Zugangsdaten vorhanden.")
-            return
-        dlg = CredentialsManagerDialog(self, credentials_dict=self.data["credentials"])
-        if dlg.exec() == QDialog.DialogCode.Accepted:
-            self.data["credentials"] = dlg.credentials
-            self.save_data()
-
-    # -------------- History -------------- #
-    def view_history(self):
-        history_list = self.data.get("history", [])
-        dlg = HistoryDialog(self, history_list=history_list)
-        dlg.exec()
-
-    # -------------- Credential Checking -------------- #
-    def get_credentials_for_url(self, url):
-        domain = QUrl(url).host()
-        return self.data["credentials"].get(domain, None)
-
-    def check_credentials(self, browser):
-        url = browser.url().toString()
-        credentials = self.get_credentials_for_url(url)
-        if not credentials:
-            return
-        js_code = """
-        (function() {
-            var inputs = document.getElementsByTagName('input');
-            var hasPasswordField = false;
-            for(var i=0; i<inputs.length; i++) {
-                if(inputs[i].type.toLowerCase() === 'password') {
-                    hasPasswordField = true;
-                    break;
-                }
-            }
-            return hasPasswordField;
-        })();
-        """
-        browser.page().runJavaScript(
-            js_code, lambda result: self.handle_check_password_field(result, credentials, browser)
-        )
-
-    def handle_check_password_field(self, has_password_field, credentials, browser):
-        if not has_password_field:
-            return
-        reply = QMessageBox.question(
-            self,
-            "Zugangsdaten verfügbar",
-            "Zugangsdaten für diese Domain sind gespeichert. Möchten Sie diese einfügen?",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-            QMessageBox.StandardButton.No
-        )
-        if reply == QMessageBox.StandardButton.Yes:
-            username = credentials['username'].replace('"', '\\"')
-            password = credentials['password'].replace('"', '\\"')
-            js_code = f"""
-            (function() {{
-                var inputs = document.getElementsByTagName('input');
-                for(var i=0; i<inputs.length; i++) {{
-                    if(inputs[i].type.toLowerCase() === 'text' || inputs[i].type.toLowerCase() === 'email') {{
-                        inputs[i].value = "{username}";
-                    }} else if(inputs[i].type.toLowerCase() === 'password') {{
-                        inputs[i].value = "{password}";
-                    }}
-                }}
-            }})();
-            """
-            browser.page().runJavaScript(js_code)
-            QMessageBox.information(self, "Info", "Zugangsdaten wurden eingefügt.")
-
-    # -------------- Login-Felder-Scan -------------- #
-    def scan_for_login_fields(self):
-        js_code = """
-        (function() {
-            var inputs = document.getElementsByTagName('input');
-            var username = '';
-            var password = '';
-            for(var i=0; i<inputs.length; i++){
-                var t = inputs[i].type.toLowerCase();
-                if((t === 'text' || t==='email') && !username) {
-                    username = inputs[i].value;
-                } else if(t === 'password' && !password) {
-                    password = inputs[i].value;
-                }
-            }
-            return {username: username, password: password};
-        })();
-        """
-        page = self.tabs.currentWidget().page()
-        page.runJavaScript(js_code, self.handle_scan_result)
-
-    def handle_scan_result(self, result):
-        username = result.get("username", "")
-        password = result.get("password", "")
-        if username or password:
-            reply = QMessageBox.question(
-                self,
-                "Zugangsdaten gefunden",
-                "Es wurden Eingabefelder gefunden. Möchten Sie diese Zugangsdaten speichern?",
-                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-                QMessageBox.StandardButton.Yes
-            )
-            if reply == QMessageBox.StandardButton.Yes:
-                current_url = self.tabs.currentWidget().url().toString()
-                domain = QUrl(current_url).host()
-                if username and password:
-                    self.data["credentials"][domain] = {"username": username, "password": password}
-                    self.save_data()
-                    QMessageBox.information(self, "Erfolg", f"Zugangsdaten für {domain} gespeichert.")
-                else:
-                    QMessageBox.warning(
-                        self,
-                        "Warnung",
-                        "Es wurden nicht beide Felder (Benutzername und Passwort) gefunden oder sind leer."
-                    )
-        else:
-            QMessageBox.information(self, "Info", "Keine geeigneten Eingabefelder gefunden.")
-
-    # -------------- NEU/GEÄNDERT: Download-Video-Methode -------------- #
-    def download_video_url(self, url):
-        # Verwende yt_dlp, um Informationen zum Video abzurufen und die Dateierweiterung zu bestimmen
-        ydl_opts = {
-            'quiet': True,
-            'no_warnings': True,
-            'skip_download': True,
-        }
-        try:
-            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                info = ydl.extract_info(url, download=False)
-                ext = info.get('ext', 'mp4')  # Standard auf mp4, falls nicht gefunden
-                title = info.get('title', 'downloaded_video')
-                # Entferne ungültige Zeichen aus dem Titel für den Dateinamen
-                title = re.sub(r'[\\/*?:"<>|]', "", title)
-                default_filename = f"{title}.{ext}"
-        except Exception as e:
-            QMessageBox.warning(self, "Download-Fehler", f"Fehler beim Abrufen der Videoinformationen:\n{e}")
-            return
-
-        # Frage den Benutzer nach dem Speicherort mit der korrekten Erweiterung
-        save_path, _ = QFileDialog.getSaveFileName(
-            self,
-            "Video speichern unter",
-            default_filename,
-            f"Video Dateien (*.{ext});;Alle Dateien (*)"
-        )
-        if not save_path:
-            return
-
-        # Erstelle den Download-Eintrag
-        download_info = {
-            "filename": os.path.basename(save_path),
-            "target_path": save_path,
-            "progress_percent": 0,
-            "status": "Wartet",
-            "timer": None,
-            "worker": None,
-            "thread": None
-        }
-        self.active_downloads_info.append(download_info)
-        self.all_downloads_info.append(download_info)
-
-        # Aktualisiere den Download-Manager-Dialog, falls geöffnet
-        if self.download_manager_dialog and self.download_manager_dialog.isVisible():
-            self.download_manager_dialog.refresh_table()
-
-        # Erstelle einen neuen QThread
-        thread = QThread()
-        # Erstelle einen neuen Worker
-        worker = DownloadWorker(url, save_path)
-        worker.moveToThread(thread)
-
-        # Verbinde Signale und Slots
-        thread.started.connect(worker.run)
-        worker.progress.connect(lambda p: self.update_download_progress(download_info, p))
-        worker.status.connect(lambda s: self.update_download_status(download_info, s))
-        worker.error.connect(lambda e: self.handle_download_error(download_info, e))
-        worker.finished.connect(thread.quit)
-        worker.finished.connect(partial(self.handle_download_finished, download_info))  # Verbindung hinzufügen
-        worker.finished.connect(worker.deleteLater)
-        thread.finished.connect(thread.deleteLater)
-
-        # Starte den Thread
-        thread.start()
-
-        # Speichere Referenzen, um Garbage Collection zu verhindern
-        download_info["worker"] = worker
-        download_info["thread"] = thread
-
-    def update_download_progress(self, download_info, percent):
-        download_info["progress_percent"] = percent
-        # Update the progress bar
-        self.download_progress_bar.setValue(percent)
-        self.download_progress_bar.setVisible(True)
-        print(f"Download Fortschritt: {percent}% - {download_info['filename']}")
-        # Update DownloadManagerDialog if open
-        if self.download_manager_dialog and self.download_manager_dialog.isVisible():
-            self.download_manager_dialog.refresh_table()
-
-    def update_download_status(self, download_info, status):
-        download_info["status"] = status
-        self.status.showMessage(f"Download Status: {status} - {download_info['target_path']}")
-        # Update DownloadManagerDialog if open
-        if self.download_manager_dialog and self.download_manager_dialog.isVisible():
-            self.download_manager_dialog.refresh_table()
-
-    def handle_download_error(self, download_info, error_message):
-        QMessageBox.warning(self, "Download-Fehler", f"Fehler beim Herunterladen von {download_info['filename']}:\n{error_message}")
-        # Setze den Status auf "Fehlgeschlagen" und entferne den Download-Eintrag aus active_downloads_info
-        download_info["status"] = "Fehlgeschlagen"
-        if download_info in self.active_downloads_info:
-            self.active_downloads_info.remove(download_info)
-        # Aktualisiere die ProgressBar auf 0%
-        self.download_progress_bar.setValue(0)
-        QTimer.singleShot(2000, lambda: self.download_progress_bar.setVisible(False))
-        # Update DownloadManagerDialog if open
-        if self.download_manager_dialog and self.download_manager_dialog.isVisible():
-            self.download_manager_dialog.refresh_table()
-
-    def handle_download_finished(self, download_info):
-        """
-        Entfernt den Download-Eintrag aus active_downloads_info nach Abschluss eines Downloads (für Video-Downloads).
-        Der Download-Eintrag bleibt in all_downloads_info, sodass der Download-Manager ihn weiterhin anzeigen kann.
-        """
-        if download_info in self.active_downloads_info:
-            self.active_downloads_info.remove(download_info)
-            print(f"Download abgeschlossen und aus aktiven Downloads entfernt: {download_info['filename']}")
-        # Aktualisiere die ProgressBar auf 100%
-        self.download_progress_bar.setValue(100)
-        self.download_progress_bar.setVisible(True)
-        # Prüfe, ob keine weiteren aktiven Downloads mehr vorhanden sind, dann verstecke die ProgressBar
-        if not self.active_downloads_info:
-            QTimer.singleShot(1000, lambda: self.download_progress_bar.setVisible(False))
-        # Aktualisiere den Download-Manager-Dialog (falls offen)
-        if self.download_manager_dialog and self.download_manager_dialog.isVisible():
-            self.download_manager_dialog.refresh_table()
-
-    def cancel_download(self, download_info):
-        """
-        Bricht einen laufenden Download ab.
-        """
-        if download_info["status"] == "Läuft":
-            if "worker" in download_info and download_info["worker"]:
-                worker = download_info["worker"]
-                worker.cancel()
-                print(f"Download abgebrochen: {download_info['filename']}")
-            elif "download_obj" in download_info and download_info["download_obj"]:
-                download_obj = download_info["download_obj"]
-                download_obj.cancel()
-                print(f"Download abgebrochen: {download_info['filename']}")
-        elif download_info["status"] == "Wartet":
-            # Noch nicht gestartet, einfach entfernen aus aktiven Downloads
-            if download_info in self.active_downloads_info:
-                self.active_downloads_info.remove(download_info)
-                print(f"Download entfernt: {download_info['filename']}")
-
-        # Update DownloadManagerDialog if open
-        if self.download_manager_dialog and self.download_manager_dialog.isVisible():
-            self.download_manager_dialog.refresh_table()
-
-    def delete_download(self, download_info):
-        """
-        Löscht einen Download aus der aktiven Download-Liste und aus der Liste aller Downloads.
-        """
-        # Stoppe den Thread oder breche den Download ab, falls noch aktiv
-        if download_info["status"] == "Läuft":
-            if "worker" in download_info and download_info["worker"]:
-                worker = download_info["worker"]
-                worker.cancel()
-                print(f"Download abgebrochen und gelöscht: {download_info['filename']}")
-            elif "download_obj" in download_info and download_info["download_obj"]:
-                download_obj = download_info["download_obj"]
-                download_obj.cancel()
-                print(f"Download abgebrochen und gelöscht: {download_info['filename']}")
-
-        # Entferne den Download aus der Liste aller Downloads
-        if download_info in self.all_downloads_info:
-            self.all_downloads_info.remove(download_info)
-            print(f"Download gelöscht: {download_info['filename']}")
-
-        # Entferne den Download aus aktiven Downloads, falls noch vorhanden
-        if download_info in self.active_downloads_info:
-            self.active_downloads_info.remove(download_info)
-
-        # Aktualisiere die ProgressBar entsprechend
-        if not self.active_downloads_info:
-            self.download_progress_bar.setVisible(False)
-            self.download_progress_bar.setValue(0)
 
         # Update DownloadManagerDialog if open
         if self.download_manager_dialog and self.download_manager_dialog.isVisible():
@@ -1910,7 +1401,7 @@ class Browser(QMainWindow):
     # -------------- NEU/GEÄNDERT: Extra Methode für YouTube -------------- #
     def handle_youtube_via_yt_dlp(self, youtube_url):
         """
-        Fragt via yt_dlp die verfügbaren Streams (Formate) für das gegebene YouTube-Video ab
+        Fragt via yt-dlp die verfügbaren Streams (Formate) für das gegebene YouTube-Video ab
         und öffnet sie dann wahlweise im VLC-Dialog.
         """
         ydl_opts = {
