@@ -144,6 +144,24 @@ jobs:
       - name: Install VLC
         run: brew install --cask vlc
 
+      - name: Verify VLC Libraries on macOS
+        run: |
+          VLC_LIB_DIR="/Applications/VLC.app/Contents/MacOS/lib"
+          if [ ! -f "$VLC_LIB_DIR/libvlc.dylib" ]; then
+            echo "Error: libvlc.dylib not found in $VLC_LIB_DIR"
+            exit 1
+          fi
+
+          if [ ! -f "$VLC_LIB_DIR/libvlccore.dylib" ]; then
+            echo "Error: libvlccore.dylib not found in $VLC_LIB_DIR"
+            exit 1
+          fi
+
+          if [ ! -d "/Applications/VLC.app/Contents/MacOS/plugins" ]; then
+            echo "Error: VLC plugins directory not found."
+            exit 1
+          fi
+
       - name: Install Dependencies
         run: |
           pip install --upgrade pip
@@ -171,14 +189,25 @@ jobs:
             exit 1
           fi
 
+          # Erstelle Runtime Hook für VLC
+          mkdir -p hooks
+          echo "import os, sys" > hooks/hook-vlc.py
+          echo "def set_ld_library_path():" >> hooks/hook-vlc.py
+          echo "    base_path = getattr(sys, '_MEIPASS', os.path.dirname(os.path.abspath(__file__)))" >> hooks/hook-vlc.py
+          echo "    vlc_lib_path = os.path.join(base_path, 'lib')" >> hooks/hook-vlc.py
+          echo "    if os.path.exists(vlc_lib_path):" >> hooks/hook-vlc.py
+          echo "        os.environ['DYLD_LIBRARY_PATH'] = vlc_lib_path + ':' + os.environ.get('DYLD_LIBRARY_PATH', '')" >> hooks/hook-vlc.py
+          echo "set_ld_library_path()" >> hooks/hook-vlc.py
+
           pyinstaller --windowed \
             --icon=assets/logo.icns \
             --collect-all PyQt6.QtWebEngineCore \
             --collect-all PyQt6.QtWebEngineWidgets \
-            --add-binary "/Applications/VLC.app/Contents/MacOS/lib/libvlc.dylib:." \
-            --add-binary "/Applications/VLC.app/Contents/MacOS/lib/libvlccore.dylib:." \
+            --add-binary "/Applications/VLC.app/Contents/MacOS/lib/libvlc.dylib:lib" \
+            --add-binary "/Applications/VLC.app/Contents/MacOS/lib/libvlccore.dylib:lib" \
             --add-data "/Applications/VLC.app/Contents/MacOS/plugins:plugins" \
             --add-data "$PUBLIC_SUFFIX_PATH:whois/data" \
+            --runtime-hook hooks/hook-vlc.py \
             TMP-Networks-Browser-Mini.py
 
       - name: List dist Directory
@@ -232,7 +261,8 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y vlc libvlc-dev build-essential pkg-config \
-            libxcb-cursor0 libx11-xcb1 libxrender1 libxkbcommon-x11-0 libxcb1
+            libxcb-cursor0 libx11-xcb1 libxrender1 libxkbcommon-x11-0 libxcb1 \
+            libxcb-util1 libxext6 libxfixes3 libxi6 libxrandr2 libxss1 libxtst6
 
       - name: Verify VLC Installation
         run: |
@@ -318,6 +348,17 @@ jobs:
           echo "Umgebungsvariablen:"
           printenv
 
+      - name: Create runtime hook for VLC
+        run: |
+          mkdir -p hooks
+          echo "import os, sys" > hooks/hook-vlc.py
+          echo "def set_ld_library_path():" >> hooks/hook-vlc.py
+          echo "    base_path = getattr(sys, '_MEIPASS', os.path.dirname(os.path.abspath(__file__)))" >> hooks/hook-vlc.py
+          echo "    vlc_lib_path = os.path.join(base_path, 'lib')" >> hooks/hook-vlc.py
+          echo "    if os.path.exists(vlc_lib_path):" >> hooks/hook-vlc.py
+          echo "        os.environ['LD_LIBRARY_PATH'] = vlc_lib_path + ':' + os.environ.get('LD_LIBRARY_PATH', '')" >> hooks/hook-vlc.py
+          echo "set_ld_library_path()" >> hooks/hook-vlc.py
+
       - name: Build Executable
         run: |
           # Lösche alte Builds
@@ -328,14 +369,20 @@ jobs:
             --icon=assets/logo.png \
             --collect-all PyQt6.QtWebEngineCore \
             --collect-all PyQt6.QtWebEngineWidgets \
-            --add-binary "$LIBVLC_PATH:." \
-            --add-binary "$LIBVLCCORE_PATH:." \
+            --add-binary "$LIBVLC_PATH:lib" \
+            --add-binary "$LIBVLCCORE_PATH:lib" \
             --add-data "$PLUGINS_PATH:plugins" \
             --add-data "$PUBLIC_SUFFIX_PATH:whois/data" \
+            --runtime-hook hooks/hook-vlc.py \
             TMP-Networks-Browser-Mini.py
 
           echo "Inhalt von dist/:"
           ls -R dist/
+
+      - name: Check Library Dependencies
+        run: |
+          ldd dist/TMP-Networks-Browser-Mini
+          find dist -name "*.so" -exec ldd {} \;
 
       - name: Upload Build Artifact
         uses: actions/upload-artifact@v3
