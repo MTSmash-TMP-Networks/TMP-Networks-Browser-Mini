@@ -1007,7 +1007,7 @@ class Browser(QMainWindow):
             QApplication.processEvents()  # Erzwingen der UI-Aktualisierung
             # Verstecke die ProgressBar nach einer kurzen Verzögerung
             QTimer.singleShot(100, lambda: self.download_progress_bar.setVisible(False))
-            # Setze den Thread auf None
+            # Setze den Thread auf None (Referenzen sauber halten)
             download_info["thread"] = None
 
         elif state in (
@@ -1023,7 +1023,7 @@ class Browser(QMainWindow):
             # Setze die ProgressBar auf 0% und zeige sie kurz an
             self.download_progress_bar.setValue(0)
             QTimer.singleShot(2000, lambda: self.download_progress_bar.setVisible(False))
-            # Setze den Thread auf None
+            # Setze den Thread auf None (Referenzen sauber halten)
             download_info["thread"] = None
 
         # Aktualisiere den Download-Manager-Dialog (falls offen)
