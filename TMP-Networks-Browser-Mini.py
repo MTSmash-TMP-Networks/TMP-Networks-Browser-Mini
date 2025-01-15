@@ -9,8 +9,9 @@ import requests
 import vlc
 import socket
 import whois
-import m3u8  # <-- Wichtig für das Parsen von M3U8
+import m3u8  # Wichtig für das Parsen von M3U8
 from datetime import datetime
+from functools import partial
 
 from urllib.parse import urljoin
 
@@ -19,19 +20,19 @@ from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QVBoxLayout, QLineEdit, QWidget,
     QTabWidget, QToolBar, QStatusBar, QFileDialog, QMessageBox,
     QDialog, QPushButton, QLabel, QMenu, QListWidget, QListWidgetItem, QHBoxLayout,
-    QSizePolicy, QFrame, QSlider, QTextEdit, QScrollArea
+    QSizePolicy, QFrame, QSlider, QTextEdit, QScrollArea, QTableWidget,
+    QTableWidgetItem, QHeaderView, QProgressBar  # Hinzugefügt
 )
 from PyQt6.QtGui import QAction, QFont
 from PyQt6.QtCore import QUrl, QSize, QObject, pyqtSlot, Qt, QTimer
 from PyQt6.QtWebEngineWidgets import QWebEngineView
 from PyQt6.QtWebChannel import QWebChannel
-from PyQt6.QtWebEngineCore import QWebEnginePage, QWebEngineSettings
+from PyQt6.QtWebEngineCore import QWebEnginePage, QWebEngineSettings, QWebEngineDownloadRequest
 
 # AppDirs für plattformübergreifende Pfadverwaltung
 from appdirs import AppDirs
 
-# NEU/GEÄNDERT: yt-dlp importieren
-import yt_dlp  # <--- Achte darauf, dass du yt-dlp installiert hast
+import yt_dlp  # Achte darauf, dass du yt-dlp installiert hast
 
 dirs = AppDirs("TMPNetworksBrowserMini", "DeinName")
 json_dir = dirs.user_data_dir
@@ -557,6 +558,67 @@ class WhoisDialog(QDialog):
         
         self.setLayout(layout)
 
+class DownloadManagerDialog(QDialog):
+    """
+    Zeigt eine Tabelle aller aktiven (und kürzlich abgeschlossenen) Downloads an.
+    """
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Download-Manager")
+        self.resize(600, 300)
+
+        self.table = QTableWidget()
+        self.table.setColumnCount(4)
+        self.table.setHorizontalHeaderLabels(["Dateiname", "Fortschritt", "Status", "Zielpfad"])
+        self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+
+        layout = QVBoxLayout(self)
+        layout.addWidget(self.table)
+
+        close_button = QPushButton("Schließen")
+        close_button.clicked.connect(self.accept)
+        layout.addWidget(close_button)
+
+        self.setLayout(layout)
+
+        # Referenz auf Browser, um Daten lesen/aktualisieren zu können
+        self.browser = parent
+
+        # Timer, damit wir regelmäßig Refresh machen:
+        self.refresh_timer = QTimer(self)
+        self.refresh_timer.setInterval(500)  # alle 0,5 Sek
+        self.refresh_timer.timeout.connect(self.refresh_table)
+        self.refresh_timer.start()
+
+    def refresh_table(self):
+        if not self.browser:
+            return
+        downloads = self.browser.active_downloads_info  # Liste mit dicts
+        self.table.setRowCount(len(downloads))
+
+        for row, dl in enumerate(downloads):
+            # Spalten: [0]Dateiname, [1]Fortschritt, [2]Status, [3]Zielpfad
+            filename_item = QTableWidgetItem(dl.get("filename", ""))
+            
+            # Erstellen einer QProgressBar für den Fortschritt
+            progress_bar = QProgressBar()
+            progress_bar.setRange(0, 100)
+            progress_bar.setValue(dl.get("progress_percent", 0))
+            progress_bar.setTextVisible(True)
+
+            status_item = QTableWidgetItem(dl.get("status", ""))
+            path_item = QTableWidgetItem(dl.get("target_path", ""))
+
+            self.table.setItem(row, 0, filename_item)
+            self.table.setCellWidget(row, 1, progress_bar)  # Fortschritt als Widget
+            self.table.setItem(row, 2, status_item)
+            self.table.setItem(row, 3, path_item)
+
+    def closeEvent(self, event):
+        # Timer stoppen, damit er nicht weiter läuft, wenn Dialog geschlossen ist
+        self.refresh_timer.stop()
+        super().closeEvent(event)
+
 class Browser(QMainWindow):
     def __init__(self):
         super().__init__()
@@ -566,7 +628,8 @@ class Browser(QMainWindow):
         if "history" not in self.data:
             self.data["history"] = []
 
-        self.active_downloads = []  # Um Downloads im Speicher zu halten
+        # Wir wollen auch Download-Infos speichern:
+        self.active_downloads_info = []  # Liste von Dicts, die unsere Download-Infos enthalten
 
         self.tabs = QTabWidget()
         self.tabs.setDocumentMode(True)
@@ -610,6 +673,13 @@ class Browser(QMainWindow):
         show_history_action = QAction("Chronik anzeigen", self)
         show_history_action.triggered.connect(self.view_history)
         self.history_menu.addAction(show_history_action)
+
+        # Download-Manager-Menü
+        self.download_menu = QMenu("Downloads", self)
+        menu_bar.addMenu(self.download_menu)
+        show_download_mgr_action = QAction("Download-Manager öffnen", self)
+        show_download_mgr_action.triggered.connect(self.open_download_manager)
+        self.download_menu.addAction(show_download_mgr_action)
 
         # Navigation Bar
         navigation_bar = QToolBar("Navigation")
@@ -677,8 +747,16 @@ class Browser(QMainWindow):
         self.status = QStatusBar()
         self.setStatusBar(self.status)
 
+        # Hinzufügen der QProgressBar zur Statusleiste
+        self.download_progress_bar = QProgressBar()
+        self.download_progress_bar.setVisible(False)  # Unsichtbar, wenn kein Download läuft
+        self.download_progress_bar.setRange(0, 100)
+        self.status.addPermanentWidget(self.download_progress_bar)
+
         # Erster Tab
         self.add_new_tab(QUrl('https://www.google.com'), 'Startseite')
+
+        self.download_manager_dialog = None  # Wird später bei Bedarf geöffnet
 
     def load_data(self):
         if os.path.exists(DATA_FILE):
@@ -763,6 +841,16 @@ class Browser(QMainWindow):
             q.setScheme("http")
         self.tabs.currentWidget().setUrl(q)
 
+    # Download-Manager öffnen
+    def open_download_manager(self):
+        if not self.download_manager_dialog:
+            self.download_manager_dialog = DownloadManagerDialog(self)
+        self.download_manager_dialog.show()
+        self.download_manager_dialog.raise_()
+        self.download_manager_dialog.activateWindow()
+
+    # -- GEÄNDERTER DOWNLOAD-CODE: Progress-Tracking mit QProgressBar --
+
     def on_downloadRequested(self, download):
         file_path, _ = QFileDialog.getSaveFileName(
             self,
@@ -777,22 +865,74 @@ class Browser(QMainWindow):
             download.setDownloadFileName(filename_only)
             download.accept()
 
-            self.active_downloads.append(download)
-            download.downloadProgress.connect(self.download_progress)
-            download.finished.connect(lambda: self.download_finished(download))
+            # Eintrag im "active_downloads_info" erstellen:
+            download_info = {
+                "download_obj": download,
+                "filename": filename_only,
+                "target_path": file_path,
+                "progress_percent": 0,
+                "status": "Läuft",
+                "timer": None  # Hinzugefügt: Timer für das Polling
+            }
+            self.active_downloads_info.append(download_info)
+            print(f"Download gestartet: {filename_only}")
 
-    def download_progress(self, received, total):
+            # Starten des Polling-Timers für den Download-Fortschritt
+            timer = QTimer(self)
+            timer.setInterval(500)  # alle 0,5 Sek
+            timer.timeout.connect(partial(self.poll_download, download_info))
+            timer.start()
+            download_info["timer"] = timer
+
+            # Signal für den Download-Statuswechsel verbinden
+            download.stateChanged.connect(
+                partial(self.handle_download_state_changed, download_info)
+            )
+
+    def poll_download(self, download_info):
+        download = download_info["download_obj"]
+        received = download.receivedBytes()
+        total = download.totalBytes()
+
         if total > 0:
-            progress = int(received / total * 100)
-            self.status.showMessage(f"Download läuft: {progress}%")
+            percent = int(received / total * 100)
+            download_info["progress_percent"] = percent
+            self.download_progress_bar.setValue(percent)
+            self.download_progress_bar.setVisible(True)
+            print(f"Download Fortschritt: {percent}% - {download_info['filename']}")
         else:
-            self.status.showMessage("Download läuft...")
+            # Wenn totalBytes nicht verfügbar, setze ProgressBar auf 0 und in unbestimmten Modus
+            self.download_progress_bar.setRange(0, 0)
+            self.download_progress_bar.setVisible(True)
+            print(f"Download Fortschritt: Unbestimmt - {download_info['filename']}")
 
-    def download_finished(self, download):
-        final_file = os.path.join(download.downloadDirectory(), download.downloadFileName())
-        self.status.showMessage(f"Download abgeschlossen: {final_file}")
-        if download in self.active_downloads:
-            self.active_downloads.remove(download)
+    def handle_download_state_changed(self, download_info, state):
+        """
+        Handhabt den Download-Statuswechsel.
+        """
+        if state == QWebEngineDownloadRequest.DownloadState.DownloadCompleted:
+            download_info["status"] = "Fertig"
+            self.status.showMessage(f"Download abgeschlossen: {download_info['target_path']}")
+            print(f"Download abgeschlossen: {download_info['filename']}")
+            # Stoppe den Timer
+            if download_info["timer"]:
+                download_info["timer"].stop()
+            # Aktualisiere die ProgressBar auf 100%
+            self.download_progress_bar.setValue(100)
+            self.download_progress_bar.setVisible(False)  # Verstecke die ProgressBar nach Abschluss
+        elif state in (
+            QWebEngineDownloadRequest.DownloadState.DownloadCancelled,
+            QWebEngineDownloadRequest.DownloadState.DownloadInterrupted
+        ):
+            download_info["status"] = "Fehlgeschlagen"
+            self.status.showMessage(f"Download fehlgeschlagen oder abgebrochen: {download_info['target_path']}")
+            print(f"Download fehlgeschlagen oder abgebrochen: {download_info['filename']}")
+            # Stoppe den Timer
+            if download_info["timer"]:
+                download_info["timer"].stop()
+            # Setze die ProgressBar auf 0% und zeige sie kurz an
+            self.download_progress_bar.setValue(0)
+            QTimer.singleShot(2000, lambda: self.download_progress_bar.setVisible(False))
 
     # -------------- Favoriten -------------- #
     def add_favorite(self):
@@ -820,12 +960,12 @@ class Browser(QMainWindow):
             submenu = QMenu(fav["title"], self)
 
             open_action = QAction("Öffnen", self)
-            # Speichere URL in open_action.data
             open_action.setData(fav["url"])
             open_action.triggered.connect(self.navigate_to_favorite)
             submenu.addAction(open_action)
 
             delete_action = QAction("Löschen ❌", self)
+            # Verwende eine Funktion mit Parameter, um das richtige Favorit-Objekt zu übergeben
             delete_action.triggered.connect(lambda checked, f=fav: self.delete_favorite_directly(f))
             submenu.addAction(delete_action)
 
@@ -1040,7 +1180,6 @@ class Browser(QMainWindow):
                 # Alle Formate auflisten
                 variant_list = []
                 for f in formats:
-                    # Resolution kann z.B. "1920x1080" sein oder None
                     resolution = f.get('resolution') or f"{f.get('width','?')}x{f.get('height','?')}"
                     label = f"{resolution} ({f.get('ext','?')}, {f.get('format_id','?')}, {f.get('fps','?')}fps)"
                     direct_url = f.get('url')
@@ -1102,13 +1241,12 @@ class Browser(QMainWindow):
         current_url = self.tabs.currentWidget().url().toString()
         domain = QUrl(current_url).host().lower()
 
-        # Wenn es eine YouTube-URL ist, verwende yt-dlp statt <video>-Tags
-        # (Abfrage kann man ausbauen: "youtube.com", "youtu.be", "youtube-nocookie.com", etc.)
-        if True:
+        # Wenn es eine YouTube-URL ist, verwende yt-dlp
+        if re.search(r'(youtube\.com|youtu\.be|youtube-nocookie\.com)', current_url, re.IGNORECASE):
             self.handle_youtube_via_yt_dlp(current_url)
             return
 
-        # --- Bestehender Code für normale <video>-Elemente --- #
+        # --- Code für normale <video>-Elemente (optional) --- #
         js_code = r"""
         (function() {
             var videos = document.getElementsByTagName('video');
@@ -1171,24 +1309,20 @@ class Browser(QMainWindow):
                 variants = self.parse_m3u8_for_all_variants(vs)
 
                 if len(variants) == 1:
-                    # Nur 1 Variante -> direkt nehmen
                     final_urls.append(variants[0][1])
                 else:
                     chosen_variant = self.ask_user_for_m3u8_variant(variants)
                     if chosen_variant:
                         final_urls.append(chosen_variant)
             else:
-                # Normale Video-URL
                 final_urls.append(vs)
 
         if not final_urls:
             return
 
         if len(final_urls) == 1:
-            # Nur 1 finales Video
             self.play_video_in_vlc(final_urls[0])
         else:
-            # Mehrere Videos -> Liste anzeigen
             dlg = QDialog(self)
             dlg.setWindowTitle("Videos auswählen")
             dlg.resize(400, 300)
@@ -1228,14 +1362,9 @@ class Browser(QMainWindow):
         dlg.exec()
 
     def parse_m3u8_for_all_variants(self, m3u8_url):
-        """
-        Lädt ein M3U8 (Master) Manifest herunter und gibt
-        eine Liste aller (label, url)-Paare zurück.
-        """
         from urllib.parse import urljoin
 
         variants = []
-
         try:
             response = requests.get(m3u8_url)
             response.raise_for_status()
@@ -1251,11 +1380,9 @@ class Browser(QMainWindow):
                         label = f"{w}x{h} ({bw} bps)"
                     else:
                         label = f"{bw} bps"
-
                     variant_url = urljoin(m3u8_url, playlist.uri)
                     variants.append((label, variant_url))
             else:
-                # Keine Master-Playlist -> nur 1 Variante
                 variants.append(("(Single)", m3u8_url))
 
         except Exception as e:
@@ -1265,11 +1392,6 @@ class Browser(QMainWindow):
         return variants
 
     def ask_user_for_m3u8_variant(self, variants):
-        """
-        Öffnet ein kleines Dialogfenster mit einer Liste (QListWidget),
-        in der man eine Auflösung/Bandbreite auswählen kann.
-        Gibt die ausgewählte URL zurück oder None, falls Abbruch.
-        """
         dlg = QDialog(self)
         dlg.setWindowTitle("Stream auswählen")
         dlg.resize(300, 200)
@@ -1292,7 +1414,7 @@ class Browser(QMainWindow):
         btn_layout.addWidget(cancel_btn)
         layout.addLayout(btn_layout)
 
-        chosen_url = [None]  # mutable Container zum "Rückgeben"
+        chosen_url = [None]
 
         def on_ok():
             item = list_widget.currentItem()
@@ -1346,6 +1468,8 @@ class Browser(QMainWindow):
         if isinstance(value, datetime):
             return value.strftime('%Y-%m-%d %H:%M:%S')
         return str(value)
+
+# NEU: DownloadManagerDialog ist bereits definiert
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
