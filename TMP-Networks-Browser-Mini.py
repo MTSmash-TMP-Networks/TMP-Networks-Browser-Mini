@@ -23,7 +23,7 @@ from PyQt6.QtWidgets import (
     QSizePolicy, QFrame, QSlider, QTextEdit, QScrollArea, QTableWidget,
     QTableWidgetItem, QHeaderView, QProgressBar
 )
-from PyQt6.QtGui import QAction, QFont
+from PyQt6.QtGui import QAction, QFont, QDesktopServices
 from PyQt6.QtCore import QUrl, QSize, QObject, pyqtSlot, pyqtSignal, Qt, QTimer, QThread
 from PyQt6.QtWebEngineWidgets import QWebEngineView
 from PyQt6.QtWebChannel import QWebChannel
@@ -439,7 +439,6 @@ class FavoritesManagerDialog(QDialog):
         if not selected_item:
             QMessageBox.information(self, "Info", "Bitte wählen Sie einen Favoriten aus.")
             return
-        
         lines = selected_item.text().split("\n")
         if len(lines) < 2:
             return
@@ -577,7 +576,7 @@ class WhoisDialog(QDialog):
 class DownloadManagerDialog(QDialog):
     """
     Zeigt eine Tabelle aller Downloads an.
-    Ermöglicht das Abbrechen und Löschen von Downloads.
+    Ermöglicht das Abbrechen, Löschen von Downloads sowie das Öffnen der heruntergeladenen Dateien.
     """
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -598,7 +597,7 @@ class DownloadManagerDialog(QDialog):
         # Hinzufügen der neuen Buttons
         btn_layout = QHBoxLayout()
         self.cancel_btn = QPushButton("Abbrechen")
-        self.delete_btn = QPushButton("Löschen")
+        self.delete_btn = QPushButton("Entfernen")
         self.close_btn = QPushButton("Schließen")
 
         btn_layout.addWidget(self.cancel_btn)
@@ -623,6 +622,9 @@ class DownloadManagerDialog(QDialog):
         self.refresh_timer.setInterval(500)  # alle 0,5 Sek
         self.refresh_timer.timeout.connect(self.refresh_table)
         self.refresh_timer.start()
+
+        # Verbinden des itemDoubleClicked-Signals
+        self.table.itemDoubleClicked.connect(self.open_download)
 
     def refresh_table(self):
         if not self.browser:
@@ -685,20 +687,29 @@ class DownloadManagerDialog(QDialog):
 
         reply = QMessageBox.question(
             self,
-            "Löschen bestätigen",
-            f"Sollen der Download '{download_info['filename']}' wirklich gelöscht werden?",
+            "Enfernen bestätigen",
+            f"Sollen der Download '{download_info['filename']}' wirklich enfernt werden?",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             QMessageBox.StandardButton.No
         )
         if reply == QMessageBox.StandardButton.Yes:
             self.browser.delete_download(download_info)
             self.refresh_table()
-            QMessageBox.information(self, "Gelöscht", f"Download '{download_info['filename']}' wurde gelöscht.")
+            QMessageBox.information(self, "Entfernt", f"Download '{download_info['filename']}' wurde entfernt.")
+
+    def open_download(self, item):
+        download_info = item.data(Qt.ItemDataRole.UserRole)
+        target_path = download_info.get("target_path")
+
+        if target_path and os.path.exists(target_path):
+            QDesktopServices.openUrl(QUrl.fromLocalFile(target_path))
+        else:
+            QMessageBox.warning(self, "Fehler", f"Die Datei '{target_path}' wurde nicht gefunden.")
 
 class Browser(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("TMP-Networks Browser (PyQt6)")
+        self.setWindowTitle("TMP-Networks Browser Mini")
         self.setGeometry(100, 100, 1200, 800)
         self.load_data()
         if "history" not in self.data:
@@ -803,12 +814,6 @@ class Browser(QMainWindow):
         spacer.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         navigation_bar.addWidget(spacer)
 
-        scan_button = QAction("🕵️‍♂️", self)
-        scan_button.setToolTip("Eingabefelder scannen")
-        scan_button.setFont(emoji_font)
-        scan_button.triggered.connect(self.scan_for_login_fields)
-        navigation_bar.addAction(scan_button)
-
         video_scan_button = QAction("🎥", self)
         video_scan_button.setToolTip("Videos scannen und abspielen (höchste Auflösung)")
         video_scan_button.setFont(emoji_font)
@@ -834,6 +839,9 @@ class Browser(QMainWindow):
         self.profile = QWebEngineProfile("TMPNetworksBrowserProfile", self)
         self.profile.setPersistentStoragePath(json_dir)
         self.profile.setPersistentCookiesPolicy(QWebEngineProfile.PersistentCookiesPolicy.ForcePersistentCookies)
+
+        # **Einmalige Verbindung des downloadRequested-Signals:**
+        self.profile.downloadRequested.connect(self.on_downloadRequested)
 
         # Erster Tab
         self.add_new_tab(QUrl('https://www.google.com'), 'Startseite')
@@ -880,7 +888,6 @@ class Browser(QMainWindow):
             qurl = QUrl("https://www.google.com")
         browser = CustomWebEngineView(self, self.profile)
         browser.setUrl(qurl)
-        browser.page().profile().downloadRequested.connect(self.on_downloadRequested)
         browser.loadFinished.connect(lambda _, b=browser: self.check_credentials(b))
         browser.loadFinished.connect(lambda _, b=browser: self.tabs.setTabText(self.tabs.indexOf(b), b.page().title()))
         browser.urlChanged.connect(lambda new_url, b=browser: self.update_url_bar(new_url, b))
@@ -1094,7 +1101,7 @@ class Browser(QMainWindow):
         reply = QMessageBox.question(
             self,
             "Löschen bestätigen",
-            f"Sollen der Favorit '{fav['title']}' wirklich gelöscht werden?",
+            f"Sollen der Favorit '{fav['title']}' löschen entfernt werden?",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             QMessageBox.StandardButton.No
         )
@@ -1229,53 +1236,194 @@ class Browser(QMainWindow):
             browser.page().runJavaScript(js_code)
             QMessageBox.information(self, "Info", "Zugangsdaten wurden eingefügt.")
 
-    # -------------- Login-Felder-Scan -------------- #
-    def scan_for_login_fields(self):
-        js_code = """
-        (function() {
-            var inputs = document.getElementsByTagName('input');
-            var username = '';
-            var password = '';
-            for(var i=0; i<inputs.length; i++){
-                var t = inputs[i].type.toLowerCase();
-                if((t === 'text' || t==='email') && !username) {
-                    username = inputs[i].value;
-                } else if(t === 'password' && !password) {
-                    password = inputs[i].value;
-                }
-            }
-            return {username: username, password: password};
-        })();
-        """
-        page = self.tabs.currentWidget().page()
-        page.runJavaScript(js_code, self.handle_scan_result)
+    # -------------- NEU/GEÄNDERT: Download-Video-Methode -------------- #
+    def download_video_url(self, url):
+        # Verwende yt_dlp, um Informationen zum Video abzurufen und die Dateierweiterung zu bestimmen
+        ydl_opts = {
+            'quiet': True,
+            'no_warnings': True,
+            'skip_download': True,
+        }
+        try:
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                info = ydl.extract_info(url, download=False)
+                ext = info.get('ext', 'mp4')  # Standard auf mp4, falls nicht gefunden
+                title = info.get('title', 'downloaded_video')
+                # Entferne ungültige Zeichen aus dem Titel für den Dateinamen
+                title = re.sub(r'[\\/*?:"<>|]', "", title)
+                default_filename = f"{title}.{ext}"
+        except Exception as e:
+            QMessageBox.warning(self, "Download-Fehler", f"Fehler beim Abrufen der Videoinformationen:\n{e}")
+            return
 
-    def handle_scan_result(self, result):
-        username = result.get("username", "")
-        password = result.get("password", "")
-        if username or password:
-            reply = QMessageBox.question(
-                self,
-                "Zugangsdaten gefunden",
-                "Es wurden Eingabefelder gefunden. Möchten Sie diese Zugangsdaten speichern?",
-                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-                QMessageBox.StandardButton.Yes
-            )
-            if reply == QMessageBox.StandardButton.Yes:
-                current_url = self.tabs.currentWidget().url().toString()
-                domain = QUrl(current_url).host()
-                if username and password:
-                    self.data["credentials"][domain] = {"username": username, "password": password}
-                    self.save_data()
-                    QMessageBox.information(self, "Erfolg", f"Zugangsdaten für {domain} gespeichert.")
-                else:
-                    QMessageBox.warning(
-                        self,
-                        "Warnung",
-                        "Es wurden nicht beide Felder (Benutzername und Passwort) gefunden oder sind leer."
-                    )
-        else:
-            QMessageBox.information(self, "Info", "Keine geeigneten Eingabefelder gefunden.")
+        # Frage den Benutzer nach dem Speicherort mit der korrekten Erweiterung
+        save_path, _ = QFileDialog.getSaveFileName(
+            self,
+            "Video speichern unter",
+            default_filename,
+            f"Video Dateien (*.{ext});;Alle Dateien (*)"
+        )
+        if not save_path:
+            return
+
+        # Erstelle den Download-Eintrag in beiden Listen
+        download_info = {
+            "filename": os.path.basename(save_path),
+            "target_path": save_path,
+            "progress_percent": 0,
+            "status": "Wartet",
+            "timer": None,
+            "worker": None,
+            "thread": None
+        }
+        self.all_downloads_info.append(download_info)
+        self.active_downloads_info.append(download_info)
+
+        # Aktualisiere den Download-Manager-Dialog, falls geöffnet
+        if self.download_manager_dialog and self.download_manager_dialog.isVisible():
+            self.download_manager_dialog.refresh_table()
+
+        # Erstelle einen neuen QThread
+        thread = QThread()
+        # Erstelle einen neuen Worker
+        worker = DownloadWorker(url, save_path)
+        worker.moveToThread(thread)
+
+        # Verbinde Signale und Slots
+        thread.started.connect(worker.run)
+        worker.progress.connect(lambda p: self.update_download_progress(download_info, p))
+        worker.status.connect(lambda s: self.update_download_status(download_info, s))
+        worker.error.connect(lambda e: self.handle_download_error(download_info, e))
+        worker.finished.connect(thread.quit)
+        worker.finished.connect(worker.deleteLater)
+        worker.finished.connect(lambda: self.on_download_finished(download_info))
+        thread.finished.connect(thread.deleteLater)
+
+        # Starte den Thread
+        thread.start()
+
+        # Speichere Referenzen, um Garbage Collection zu verhindern
+        download_info["worker"] = worker
+        download_info["thread"] = thread
+
+        # Aktualisiere die Statusleiste und ProgressBar
+        self.download_progress_bar.setVisible(True)
+        self.status.showMessage(f"Download gestartet: {download_info['filename']}")
+
+    # -------------- NEU/GEÄNDERT: Extra Methode für YouTube -------------- #
+    def handle_youtube_via_yt_dlp(self, youtube_url):
+        """
+        Fragt via yt_dlp die verfügbaren Streams (Formate) für das gegebene YouTube-Video ab
+        und öffnet sie dann wahlweise im VLC-Dialog.
+        """
+        ydl_opts = {
+            'quiet': True,
+            'no_warnings': True,
+            'format': 'best'  # oder 'bestvideo+bestaudio/best' je nach Bedarf
+        }
+        try:
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                info = ydl.extract_info(youtube_url, download=False)
+                formats = info.get('formats', [])
+                if not formats:
+                    QMessageBox.warning(self, "Fehler", "Keine abspielbaren Formate gefunden.")
+                    return
+
+                # Alle Formate auflisten
+                variant_list = []
+                for f in formats:
+                    resolution = f.get('resolution') or f"{f.get('width','?')}x{f.get('height','?')}"
+                    label = f"{resolution} ({f.get('ext','?')}, {f.get('format_id','?')}, {f.get('fps','?')}fps)"
+                    direct_url = f.get('url')
+                    if direct_url:
+                        variant_list.append((label, direct_url))
+
+                if not variant_list:
+                    QMessageBox.warning(self, "Fehler", "Keine abspielbaren Direct-URLs gefunden.")
+                    return
+
+                # Wenn es nur ein Format gibt, direkt abspielen:
+                if len(variant_list) == 1:
+                    self.play_video_in_vlc(variant_list[0][1])
+                    return
+
+                # Sonst: Dialog zur Auswahl des Formats
+                dlg = QDialog(self)
+                dlg.setWindowTitle("Stream auswählen")
+                dlg.resize(400, 300)
+                layout = QVBoxLayout(dlg)
+
+                info_label = QLabel(f"Formate für: {info.get('title', youtube_url)}")
+                layout.addWidget(info_label)
+
+                list_widget = QListWidget()
+                for label_text, url in variant_list:
+                    item = QListWidgetItem(label_text)
+                    item.setData(Qt.ItemDataRole.UserRole, url)
+                    list_widget.addItem(item)
+                layout.addWidget(list_widget)
+
+                btn_layout = QHBoxLayout()
+                ok_btn = QPushButton("Abspielen")
+                cancel_btn = QPushButton("Abbrechen")
+                btn_layout.addWidget(ok_btn)
+                btn_layout.addWidget(cancel_btn)
+                layout.addLayout(btn_layout)
+
+                def on_ok():
+                    item = list_widget.currentItem()
+                    if item:
+                        chosen_url = item.data(Qt.ItemDataRole.UserRole)
+                        self.play_video_in_vlc(chosen_url)
+                    dlg.accept()
+
+                def on_cancel():
+                    dlg.reject()
+
+                ok_btn.clicked.connect(on_ok)
+                cancel_btn.clicked.connect(on_cancel)
+
+                dlg.exec()
+
+        except Exception as e:
+            QMessageBox.warning(self, "YouTube-Fehler", f"Fehler beim Abrufen der Streams:\n{e}")
+
+    # -------------- NEU/GEÄNDERT: Scan & Play-Methode anpassen -------------- #
+    def scan_and_play_videos(self):
+        current_url = self.tabs.currentWidget().url().toString()
+
+        # Jetzt für alle Domains yt_dlp einsetzen
+        self.handle_youtube_via_yt_dlp(current_url)
+
+    def play_video_in_vlc(self, video_url):
+        dlg = VLCPlayerDialog(video_url, self)
+        dlg.exec()
+
+    # -------------- NEU: show_whois_info Methode -------------- #
+    def show_whois_info(self):
+        current_url = self.tabs.currentWidget().url().toString()
+        domain = QUrl(current_url).host()
+        if not domain:
+            QMessageBox.warning(self, "Fehler", "Keine gültige Domain gefunden.")
+            return
+
+        try:
+            whois_info = whois.whois(domain)
+            # Formatieren der WHOIS-Daten
+            whois_str = ""
+            for key, value in whois_info.items():
+                whois_str += f"{key}: {value}\n"
+
+            # IP Informationen abrufen
+            ip = socket.gethostbyname(domain)
+            ip_info = f"IP-Adresse: {ip}"
+
+            # Erstelle und zeige den WhoisDialog
+            dlg = WhoisDialog(whois_str, ip_info, self)
+            dlg.exec()
+
+        except Exception as e:
+            QMessageBox.warning(self, "Fehler", f"Fehler beim Abrufen der WHOIS-Informationen:\n{e}")
 
     # -------------- NEU/GEÄNDERT: Download-Video-Methode -------------- #
     def download_video_url(self, url):
@@ -1652,6 +1800,119 @@ class Browser(QMainWindow):
         # Aktualisiere die Statusleiste und ProgressBar
         self.download_progress_bar.setVisible(True)
         self.status.showMessage(f"Download gestartet: {download_info['filename']}")
+
+    def update_download_progress(self, download_info, percent):
+        download_info["progress_percent"] = percent
+        # Update the progress bar
+        self.download_progress_bar.setValue(percent)
+        self.download_progress_bar.setVisible(True)
+        print(f"Download Fortschritt: {percent}% - {download_info['filename']}")
+        # Update DownloadManagerDialog if open
+        if self.download_manager_dialog and self.download_manager_dialog.isVisible():
+            self.download_manager_dialog.refresh_table()
+
+    def update_download_status(self, download_info, status):
+        download_info["status"] = status
+        self.status.showMessage(f"Download Status: {status} - {download_info['target_path']}")
+        # Update DownloadManagerDialog if open
+        if self.download_manager_dialog and self.download_manager_dialog.isVisible():
+            self.download_manager_dialog.refresh_table()
+
+    def handle_download_error(self, download_info, error_message):
+        QMessageBox.warning(self, "Download-Fehler", f"Fehler beim Herunterladen von {download_info['filename']}:\n{error_message}")
+
+    def on_download_finished(self, download_info):
+        # Aktualisiere den Status basierend auf dem letzten Status
+        if download_info["status"] == "Fertig":
+            self.status.showMessage(f"Download abgeschlossen: {download_info['target_path']}")
+        elif download_info["status"] == "Abgebrochen":
+            self.status.showMessage(f"Download abgebrochen: {download_info['target_path']}")
+        elif download_info["status"] == "Fehlgeschlagen":
+            self.status.showMessage(f"Download fehlgeschlagen: {download_info['target_path']}")
+
+        # Entferne den Download-Eintrag aus aktiven Downloads
+        if download_info in self.active_downloads_info:
+            self.active_downloads_info.remove(download_info)
+
+        # Überprüfe, ob keine aktiven Downloads mehr vorhanden sind
+        if not self.active_downloads_info:
+            self.download_progress_bar.setVisible(False)
+            self.status.clearMessage()
+        else:
+            # Setze die ProgressBar auf den höchsten Fortschritt der verbleibenden Downloads
+            max_progress = max(dl["progress_percent"] for dl in self.active_downloads_info)
+            self.download_progress_bar.setValue(max_progress)
+
+        # Aktualisiere den Download-Manager-Dialog (falls offen)
+        if self.download_manager_dialog and self.download_manager_dialog.isVisible():
+            self.download_manager_dialog.refresh_table()
+
+    def cancel_download(self, download_info):
+        """
+        Bricht einen laufenden Download ab.
+        """
+        if download_info["status"] in ["Läuft", "Wartet"]:
+            if "worker" in download_info and download_info["worker"]:
+                worker = download_info["worker"]
+                worker.cancel()
+                print(f"Download abgebrochen: {download_info['filename']}")
+            elif "download_obj" in download_info and download_info["download_obj"]:
+                download_obj = download_info["download_obj"]
+                download_obj.cancel()
+                print(f"Download abgebrochen: {download_info['filename']}")
+        elif download_info["status"] == "Wartet":
+            # Noch nicht gestartet, einfach entfernen
+            if download_info in self.active_downloads_info:
+                self.active_downloads_info.remove(download_info)
+            print(f"Download entfernt: {download_info['filename']}")
+
+        # Überprüfe, ob keine aktiven Downloads mehr vorhanden sind
+        if not self.active_downloads_info:
+            self.download_progress_bar.setVisible(False)
+            self.status.clearMessage()
+        else:
+            # Setze die ProgressBar auf den höchsten Fortschritt der verbleibenden Downloads
+            max_progress = max(dl["progress_percent"] for dl in self.active_downloads_info)
+            self.download_progress_bar.setValue(max_progress)
+
+        # Update DownloadManagerDialog if open
+        if self.download_manager_dialog and self.download_manager_dialog.isVisible():
+            self.download_manager_dialog.refresh_table()
+
+    def delete_download(self, download_info):
+        """
+        Löscht einen Download aus der gesamten Download-Liste.
+        """
+        # Stoppe den Thread oder breche den Download ab, falls noch aktiv
+        if download_info["status"] in ["Läuft", "Wartet"]:
+            if "worker" in download_info and download_info["worker"]:
+                worker = download_info["worker"]
+                worker.cancel()
+                print(f"Download abgebrochen und gelöscht: {download_info['filename']}")
+            elif "download_obj" in download_info and download_info["download_obj"]:
+                download_obj = download_info["download_obj"]
+                download_obj.cancel()
+                print(f"Download abgebrochen und gelöscht: {download_info['filename']}")
+
+        # Entferne den Download aus beiden Listen
+        if download_info in self.active_downloads_info:
+            self.active_downloads_info.remove(download_info)
+        if download_info in self.all_downloads_info:
+            self.all_downloads_info.remove(download_info)
+        print(f"Download gelöscht: {download_info['filename']}")
+
+        # Überprüfe, ob keine aktiven Downloads mehr vorhanden sind
+        if not self.active_downloads_info:
+            self.download_progress_bar.setVisible(False)
+            self.status.clearMessage()
+        else:
+            # Setze die ProgressBar auf den höchsten Fortschritt der verbleibenden Downloads
+            max_progress = max(dl["progress_percent"] for dl in self.active_downloads_info)
+            self.download_progress_bar.setValue(max_progress)
+
+        # Update DownloadManagerDialog if open
+        if self.download_manager_dialog and self.download_manager_dialog.isVisible():
+            self.download_manager_dialog.refresh_table()
 
     # -------------- NEU/GEÄNDERT: Extra Methode für YouTube -------------- #
     def handle_youtube_via_yt_dlp(self, youtube_url):
