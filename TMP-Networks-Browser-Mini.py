@@ -699,8 +699,8 @@ class DownloadManagerDialog(QDialog):
 
         reply = QMessageBox.question(
             self,
-            "Enfernen bestätigen",
-            f"Sollen der Download '{download_info['filename']}' wirklich enfernt werden?",
+            "Entfernen bestätigen",
+            f"Sollen der Download '{download_info['filename']}' wirklich entfernt werden?",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             QMessageBox.StandardButton.No
         )
@@ -719,12 +719,12 @@ class DownloadManagerDialog(QDialog):
             QMessageBox.warning(self, "Fehler", f"Die Datei '{target_path}' wurde nicht gefunden.")
 
 
-# --- NEU: Plugins verwalten ---
+# --- NEU: Plugins verwalten (ohne Aktivieren/Deaktivieren) ---
 class PluginManagerDialog(QDialog):
     """
     Dialog zur Verwaltung der Plugins.
-    Zeigt eine Tabelle mit Plugin-Pfad und ob es aktiv ist oder nicht.
-    Ermöglicht das Hinzufügen, Entfernen und Aktivieren/Deaktivieren.
+    Zeigt eine Tabelle mit Plugin-Pfad.
+    Ermöglicht das Hinzufügen oder Entfernen.
     """
     def __init__(self, parent=None, plugins_list=None):
         super().__init__(parent)
@@ -736,8 +736,9 @@ class PluginManagerDialog(QDialog):
         layout = QVBoxLayout()
 
         self.table = QTableWidget()
-        self.table.setColumnCount(2)
-        self.table.setHorizontalHeaderLabels(["Plugin-Pfad", "Aktiv?"])
+        # Nur 1 Spalte: "Plugin-Pfad"
+        self.table.setColumnCount(1)
+        self.table.setHorizontalHeaderLabels(["Plugin-Pfad"])
         self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
         self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self.table.setSelectionMode(QTableWidget.SelectionMode.SingleSelection)
@@ -749,19 +750,16 @@ class PluginManagerDialog(QDialog):
         btn_layout = QHBoxLayout()
         self.add_btn = QPushButton("Hinzufügen")
         self.remove_btn = QPushButton("Entfernen")
-        self.toggle_btn = QPushButton("Aktivieren/Deaktivieren")
         self.close_btn = QPushButton("Schließen")
 
         btn_layout.addWidget(self.add_btn)
         btn_layout.addWidget(self.remove_btn)
-        btn_layout.addWidget(self.toggle_btn)
         btn_layout.addStretch()
         btn_layout.addWidget(self.close_btn)
         layout.addLayout(btn_layout)
 
         self.add_btn.clicked.connect(self.add_plugin)
         self.remove_btn.clicked.connect(self.remove_plugin)
-        self.toggle_btn.clicked.connect(self.toggle_plugin)
         self.close_btn.clicked.connect(self.accept)
 
         self.setLayout(layout)
@@ -770,11 +768,7 @@ class PluginManagerDialog(QDialog):
         self.table.setRowCount(len(self.plugins))
         for row, plugin in enumerate(self.plugins):
             path_item = QTableWidgetItem(plugin["path"])
-            active_text = "Ja" if plugin["active"] else "Nein"
-            active_item = QTableWidgetItem(active_text)
-
             self.table.setItem(row, 0, path_item)
-            self.table.setItem(row, 1, active_item)
 
     def add_plugin(self):
         file_path, _ = QFileDialog.getOpenFileName(
@@ -785,8 +779,8 @@ class PluginManagerDialog(QDialog):
         )
         if not file_path:
             return
-        # Plugin an Liste anhängen, standardmäßig aktivieren oder deaktiviert (deine Wahl)
-        self.plugins.append({"path": file_path, "active": True})
+        # Plugin an Liste anhängen
+        self.plugins.append({"path": file_path})
         self.refresh_table()
 
     def remove_plugin(self):
@@ -805,15 +799,6 @@ class PluginManagerDialog(QDialog):
             self.plugins.pop(row)
             self.refresh_table()
 
-    def toggle_plugin(self):
-        row = self.table.currentRow()
-        if row < 0:
-            QMessageBox.information(self, "Info", "Bitte wähle ein Plugin aus.")
-            return
-        plugin = self.plugins[row]
-        plugin["active"] = not plugin["active"]
-        self.refresh_table()
-
 
 class Browser(QMainWindow):
     def __init__(self):
@@ -826,7 +811,7 @@ class Browser(QMainWindow):
         if "history" not in self.data:
             self.data["history"] = []
         if "plugins" not in self.data:
-            self.data["plugins"] = []  # Liste von dicts mit {"path":..., "active":...}
+            self.data["plugins"] = []  # Liste von dicts mit {"path":...}
 
         # Listen für Downloads
         self.active_downloads_info = []
@@ -882,7 +867,7 @@ class Browser(QMainWindow):
         show_download_mgr_action.triggered.connect(self.open_download_manager)
         self.download_menu.addAction(show_download_mgr_action)
 
-        # --- NEU: Plugins-Menü ---
+        # Plugins-Menü
         self.plugin_menu = QMenu("Plugins", self)
         menu_bar.addMenu(self.plugin_menu)
 
@@ -893,7 +878,6 @@ class Browser(QMainWindow):
         manage_plugins_action = QAction("Plugins verwalten", self)
         manage_plugins_action.triggered.connect(self.manage_plugins)
         self.plugin_menu.addAction(manage_plugins_action)
-        # --- Ende Plugins-Menü ---
 
         # Navigation Bar
         navigation_bar = QToolBar("Navigation")
@@ -976,28 +960,41 @@ class Browser(QMainWindow):
     # --- Plugin-Handling ---
     def load_plugins(self):
         """
-        Lädt alle aktiven Plugins (falls in self.data["plugins"] eingetragen).
+        Lädt alle Plugins (Pfad) aus self.data["plugins"].
         Wenn das Plugin eine Funktion 'initialize_plugin(browser)' definiert, wird sie aufgerufen.
         """
         for plugin_info in self.data["plugins"]:
-            if plugin_info.get("active", False):
-                path = plugin_info["path"]
+            path = plugin_info["path"]
+            try:
+                spec = importlib.util.spec_from_file_location("temp_plugin", path)
+                plugin_module = importlib.util.module_from_spec(spec)
+                spec.loader.exec_module(plugin_module)
+
+                # Falls das Plugin eine spezielle Init-Funktion hat
+                if hasattr(plugin_module, "initialize_plugin"):
+                    plugin_module.initialize_plugin(self)
+
+                self.loaded_plugin_modules[path] = plugin_module
+            except Exception as e:
+                print(f"Fehler beim Laden des Plugins '{path}': {e}")
+
+    def unload_all_plugins(self):
+        """
+        Entfernt alle geladenen Plugins aus self.loaded_plugin_modules.
+        Hier könnte man ggf. pro Plugin noch einen 'finalize_plugin' Hook aufrufen.
+        """
+        for path, plugin_module in self.loaded_plugin_modules.items():
+            if hasattr(plugin_module, "finalize_plugin"):
                 try:
-                    spec = importlib.util.spec_from_file_location("temp_plugin", path)
-                    plugin_module = importlib.util.module_from_spec(spec)
-                    spec.loader.exec_module(plugin_module)
-
-                    # Falls das Plugin eine spezielle Init-Funktion hat
-                    if hasattr(plugin_module, "initialize_plugin"):
-                        plugin_module.initialize_plugin(self)
-
-                    self.loaded_plugin_modules[path] = plugin_module
+                    plugin_module.finalize_plugin(self)
                 except Exception as e:
-                    print(f"Fehler beim Laden des Plugins '{path}': {e}")
+                    print(f"Fehler bei finalize_plugin in {path}: {e}")
+
+        self.loaded_plugin_modules.clear()
 
     def add_plugin(self):
         """
-        Fügt ein Plugin (Pfad) direkt hinzu.
+        Fügt ein Plugin (Pfad) direkt hinzu und startet neu.
         """
         file_path, _ = QFileDialog.getOpenFileName(
             self,
@@ -1007,26 +1004,49 @@ class Browser(QMainWindow):
         )
         if not file_path:
             return
-        # Plugin in self.data ablegen und aktivieren
-        self.data["plugins"].append({"path": file_path, "active": True})
+        # Plugin in self.data ablegen
+        self.data["plugins"].append({"path": file_path})
         self.save_data()
-        QMessageBox.information(self, "Plugin", f"Plugin hinzugefügt: {file_path}")
-        # Optional: direkt laden
-        self.load_plugins()
+
+        QMessageBox.information(
+            self,
+            "Neustart",
+            "Plugin hinzugefügt. Die Anwendung wird nun neu gestartet."
+        )
+        self.restart_application()
 
     def manage_plugins(self):
         """
-        Öffnet den Dialog zur Plugin-Verwaltung.
+        Öffnet den Dialog zur Plugin-Verwaltung und startet bei Änderung neu.
         """
+        # Alte Liste zwischenspeichern, um festzustellen, ob sich etwas ändert
+        old_plugins = self.data["plugins"][:]
+
         dlg = PluginManagerDialog(self, plugins_list=self.data["plugins"])
         if dlg.exec() == QDialog.DialogCode.Accepted:
             # Liste aktualisieren
             self.data["plugins"] = dlg.plugins
             self.save_data()
 
-            # Ggf. neu laden (einfachste Variante: Alles neu laden)
-            self.loaded_plugin_modules = {}
-            self.load_plugins()
+            # Prüfen, ob sich etwas geändert hat
+            if self.data["plugins"] != old_plugins:
+                # Änderungen -> wir starten die App neu
+                QMessageBox.information(
+                    self,
+                    "Neustart",
+                    "Die Plugin-Liste hat sich geändert. Das Programm wird neu gestartet."
+                )
+                self.restart_application()
+
+    def restart_application(self):
+        """
+        Führt einen harten Neustart des aktuellen Python-Skripts durch.
+        """
+        import sys
+        import os
+
+        python = sys.executable
+        os.execl(python, python, *sys.argv)
 
     # --- Ende Plugin-Handling ---
 
