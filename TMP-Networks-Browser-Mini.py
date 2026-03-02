@@ -1,21 +1,30 @@
 #!/usr/bin/env python3
 # TMP-Networks-Browser-Mini.py
+#
+# Features:
+# - Popups öffnen als Tab (URL-Bar wird korrekt aktualisiert)
+# - Echte Adressleisten-Suche (kein URL-Format -> Google Suche)
+# - Favicons pro Tab
+# - Animierte Lade-"Glow"-Leiste (Statusbar)
+# - Download-Queue (max. parallele yt-dlp Downloads)
+# - Reader Mode (vereinfachte Lesansicht)
+# - Werbeblocker-Basis via Request-Interceptor (QWebEngineUrlRequestInterceptor)
 
 import sys
 import json
 import os
 import re
-import requests
-import vlc
 import socket
 import whois
-import m3u8  # Wichtig für das Parsen von M3U8
 from datetime import datetime
 from functools import partial
-import importlib
 import importlib.util
+from collections import deque
 
-from urllib.parse import urljoin
+import vlc
+import yt_dlp
+
+from urllib.parse import quote_plus
 
 # PyQt6
 from PyQt6.QtWidgets import (
@@ -25,18 +34,23 @@ from PyQt6.QtWidgets import (
     QSizePolicy, QFrame, QSlider, QTextEdit, QScrollArea, QTableWidget,
     QTableWidgetItem, QHeaderView, QProgressBar
 )
-from PyQt6.QtGui import QAction, QFont, QDesktopServices
-from PyQt6.QtCore import QUrl, QSize, Qt, QTimer, QThread
+from PyQt6.QtGui import QAction, QFont, QDesktopServices, QIcon
+from PyQt6.QtCore import QUrl, QSize, Qt, QTimer, QThread, QByteArray
 from PyQt6.QtWebEngineWidgets import QWebEngineView
-from PyQt6.QtWebChannel import QWebChannel
-from PyQt6.QtWebEngineCore import QWebEnginePage, QWebEngineSettings, QWebEngineDownloadRequest, QWebEngineProfile
+from PyQt6.QtWebEngineCore import (
+    QWebEnginePage, QWebEngineSettings, QWebEngineDownloadRequest, QWebEngineProfile
+)
 
-# AppDirs für plattformübergreifende Pfadverwaltung
+# Interceptor
+from PyQt6.QtWebEngineCore import QWebEngineUrlRequestInterceptor
+
+# AppDirs
 from appdirs import AppDirs
 
-import yt_dlp  # Achte darauf, dass du yt-dlp installiert hast
 
-# Verzeichnisse für Daten
+# ---------------------------
+# Datenpfade
+# ---------------------------
 dirs = AppDirs("TMPNetworksBrowserMini", "DeinName")
 json_dir = dirs.user_data_dir
 json_path = os.path.join(json_dir, "favoriten_und_passwoerter.json")
@@ -44,17 +58,312 @@ os.makedirs(json_dir, exist_ok=True)
 DATA_FILE = json_path
 
 
+# ---------------------------
+# Styling (Epic Dark Theme)
+# ---------------------------
+EPIC_QSS = """
+QMainWindow {
+    background: #0b0f17;
+}
+QMenuBar {
+    background: #0e1420;
+    color: #e7eefc;
+    padding: 6px;
+}
+QMenuBar::item {
+    background: transparent;
+    padding: 6px 10px;
+    border-radius: 8px;
+}
+QMenuBar::item:selected {
+    background: #1a2740;
+}
+QMenu {
+    background: #0e1420;
+    color: #e7eefc;
+    border: 1px solid #22314f;
+    padding: 6px;
+}
+QMenu::item {
+    padding: 8px 14px;
+    border-radius: 8px;
+}
+QMenu::item:selected {
+    background: #1a2740;
+}
+
+QToolBar {
+    background: #0e1420;
+    border: none;
+    spacing: 8px;
+    padding: 8px;
+}
+QToolButton {
+    background: #121b2b;
+    color: #e7eefc;
+    border: 1px solid #22314f;
+    padding: 8px 10px;
+    border-radius: 10px;
+}
+QToolButton:hover {
+    background: #17223a;
+    border: 1px solid #2f4675;
+}
+QToolButton:pressed {
+    background: #0f1728;
+}
+
+QLineEdit {
+    background: #0b1220;
+    color: #e7eefc;
+    border: 1px solid #22314f;
+    border-radius: 12px;
+    padding: 10px 12px;
+    selection-background-color: #2f6cff;
+}
+QLineEdit:focus {
+    border: 1px solid #2f6cff;
+}
+
+QTabWidget::pane {
+    border: 1px solid #22314f;
+    top: -1px;
+    background: #0b0f17;
+}
+QTabBar::tab {
+    background: #0e1420;
+    color: #cfe0ff;
+    border: 1px solid #22314f;
+    padding: 10px 14px;
+    margin-right: 6px;
+    border-top-left-radius: 12px;
+    border-top-right-radius: 12px;
+}
+QTabBar::tab:selected {
+    background: #121b2b;
+    color: #ffffff;
+    border: 1px solid #2f4675;
+}
+QTabBar::tab:hover {
+    background: #17223a;
+}
+
+QStatusBar {
+    background: #0e1420;
+    color: #cfe0ff;
+    border-top: 1px solid #22314f;
+}
+QProgressBar {
+    border: 1px solid #22314f;
+    border-radius: 8px;
+    text-align: center;
+    color: #e7eefc;
+    background: #0b1220;
+}
+QProgressBar::chunk {
+    border-radius: 8px;
+    background-color: #2f6cff;
+}
+
+QDialog {
+    background: #0b0f17;
+    color: #e7eefc;
+}
+QLabel {
+    color: #e7eefc;
+}
+QPushButton {
+    background: #121b2b;
+    color: #e7eefc;
+    border: 1px solid #22314f;
+    padding: 10px 12px;
+    border-radius: 10px;
+}
+QPushButton:hover {
+    background: #17223a;
+    border: 1px solid #2f4675;
+}
+QPushButton:pressed {
+    background: #0f1728;
+}
+
+QTableWidget {
+    background: #0b1220;
+    color: #e7eefc;
+    border: 1px solid #22314f;
+    gridline-color: #22314f;
+}
+QHeaderView::section {
+    background: #0e1420;
+    color: #cfe0ff;
+    padding: 8px;
+    border: 1px solid #22314f;
+}
+QListWidget {
+    background: #0b1220;
+    color: #e7eefc;
+    border: 1px solid #22314f;
+}
+QListWidget::item {
+    padding: 10px;
+    border-radius: 10px;
+}
+QListWidget::item:selected {
+    background: #1a2740;
+}
+"""
+
+
 def get_emoji_font():
-    """ 
-    Vereinfachtes Fallback: Liefert z.B. 'Noto Color Emoji' mit Größe 16
-    """
     return QFont("Noto Color Emoji", 16)
 
 
+def looks_like_url(text: str) -> bool:
+    """
+    Heuristik:
+    - enthält Schema (http/https) -> URL
+    - enthält einen Punkt und keine Leerzeichen -> wahrscheinlich Domain
+    - localhost / IP -> URL
+    """
+    t = text.strip()
+    if not t:
+        return False
+    if re.match(r'^[a-zA-Z][a-zA-Z0-9+\-.]*://', t):
+        return True
+    if " " in t:
+        return False
+    if t.lower().startswith("localhost"):
+        return True
+    if re.match(r'^\d{1,3}(\.\d{1,3}){3}(:\d+)?(/.*)?$', t):
+        return True
+    # domain.tld oder sub.domain.tld
+    if "." in t and not t.startswith(".") and not t.endswith("."):
+        return True
+    return False
+
+
+def normalize_to_url(text: str) -> QUrl:
+    t = text.strip()
+    q = QUrl(t)
+    if q.scheme() == "":
+        q.setScheme("http")
+    return q
+
+
+def google_search_url(query: str) -> QUrl:
+    return QUrl(f"https://www.google.com/search?q={quote_plus(query)}")
+
+
+# ---------------------------
+# Adblock Interceptor (Basis)
+# ---------------------------
+class AdBlockInterceptor(QWebEngineUrlRequestInterceptor):
+    """
+    Sehr einfache Basis:
+    - blockt bekannte Ad/Tracker Hosts und einige Pfad-Signaturen.
+    - nicht so stark wie uBlock, aber guter Start.
+    """
+    def __init__(self, enabled=True, parent=None):
+        super().__init__(parent)
+        self.enabled = enabled
+
+        self.block_hosts = {
+            "doubleclick.net", "googlesyndication.com", "google-analytics.com",
+            "adsystem.com", "adservice.google.com", "adservice.google.de",
+            "facebook.net", "connect.facebook.net",
+            "analytics.twitter.com",
+            "scorecardresearch.com",
+            "adnxs.com", "taboola.com", "outbrain.com",
+            "criteo.com", "criteo.net",
+        }
+        self.block_substrings = [
+            "/ads?", "/ads/", "adserver", "adsystem", "doubleclick",
+            "analytics", "collect?", "pixel", "tracker", "beacon",
+        ]
+
+    def setEnabled(self, enabled: bool):
+        self.enabled = enabled
+
+    def interceptRequest(self, info):
+        if not self.enabled:
+            return
+        url = info.requestUrl()
+        host = url.host().lower()
+        path = url.path().lower()
+        full = url.toString().lower()
+
+        # Host-basierter Block
+        for h in self.block_hosts:
+            if host == h or host.endswith("." + h):
+                info.block(True)
+                return
+
+        # Substring-basierter Block
+        for s in self.block_substrings:
+            if s in path or s in full:
+                info.block(True)
+                return
+
+
+# ---------------------------
+# Glow Progress Bar
+# ---------------------------
+class GlowProgressBar(QProgressBar):
+    """
+    Fake "Glow": animiert einen hellen Gradient über dem Chunk.
+    Wir machen das über ein dynamisches Stylesheet (leichtgewichtig).
+    """
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._phase = 0
+        self._anim = QTimer(self)
+        self._anim.setInterval(40)
+        self._anim.timeout.connect(self._tick)
+        self.setTextVisible(False)
+        self.setRange(0, 100)
+        self.setMaximumWidth(220)
+        self.setFixedHeight(10)
+        self._apply_style()
+
+    def startGlow(self):
+        if not self._anim.isActive():
+            self._anim.start()
+
+    def stopGlow(self):
+        if self._anim.isActive():
+            self._anim.stop()
+
+    def _tick(self):
+        self._phase = (self._phase + 6) % 100
+        self._apply_style()
+
+    def _apply_style(self):
+        # Der "Glow" ist ein wandernder hellerer Streifen im Chunk
+        p = self._phase
+        # drei Stops: dunkel -> hell -> dunkel
+        self.setStyleSheet(f"""
+            QProgressBar {{
+                border: 1px solid #22314f;
+                border-radius: 6px;
+                background: #0b1220;
+            }}
+            QProgressBar::chunk {{
+                border-radius: 6px;
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
+                    stop:0 #2f6cff,
+                    stop:{max(0.0, (p-15)/100):.2f} #2f6cff,
+                    stop:{p/100:.2f} #8fb6ff,
+                    stop:{min(1.0, (p+15)/100):.2f} #2f6cff,
+                    stop:1 #2f6cff
+                );
+            }}
+        """)
+
+
+# ---------------------------
+# Download Worker (yt-dlp)
+# ---------------------------
 class DownloadWorker(QWidget):
-    """
-    Worker-Objekt für den Download via yt_dlp in einem separaten QThread.
-    """
     from PyQt6.QtCore import pyqtSignal
     progress = pyqtSignal(int)
     status = pyqtSignal(str)
@@ -68,15 +377,14 @@ class DownloadWorker(QWidget):
         self._is_cancelled = False
 
     def run(self):
-        import yt_dlp
-
         def progress_hook(d):
             if self._is_cancelled:
                 raise yt_dlp.utils.DownloadError('Download cancelled by user.')
             if d['status'] == 'downloading':
-                if d.get('total_bytes'):
-                    percent = int(d['downloaded_bytes'] / d['total_bytes'] * 100)
-                    self.progress.emit(percent)
+                total = d.get('total_bytes') or d.get('total_bytes_estimate')
+                if total:
+                    percent = int(d.get('downloaded_bytes', 0) / total * 100)
+                    self.progress.emit(max(0, min(100, percent)))
             elif d['status'] == 'finished':
                 self.progress.emit(100)
                 self.status.emit('Fertig')
@@ -105,17 +413,17 @@ class DownloadWorker(QWidget):
         self._is_cancelled = True
 
 
+# ---------------------------
+# VLC Player Dialog
+# ---------------------------
 class VLCPlayerDialog(QDialog):
-    """
-    Dialog zum Abspielen eines Videos mit VLC und Steuerelementen.
-    """
     def __init__(self, video_url, parent=None):
         super().__init__(parent)
         self.setWindowTitle("Video abspielen mit VLC")
-        self.resize(800, 600)
+        self.resize(900, 650)
         self.video_url = video_url
 
-        self.is_seeking = False  # Zum Unterscheiden, ob gerade Slider bedient wird
+        self.is_seeking = False
 
         layout = QVBoxLayout(self)
         self.videoframe = QFrame(self)
@@ -200,19 +508,15 @@ class VLCPlayerDialog(QDialog):
 
     def slider_released(self):
         self.is_seeking = False
-        new_position = self.position_slider.value()
-        self.media_player.set_time(new_position)
+        self.media_player.set_time(self.position_slider.value())
 
     def download_video(self):
-        # Statt direktes Herunterladen, rufe die Browser-Methode auf
         parent_browser = self.parent()
-        from PyQt6.QtWidgets import QMessageBox
         if not parent_browser or not isinstance(parent_browser, Browser):
             QMessageBox.warning(self, "Fehler", "Der Browser ist nicht verfügbar.")
             return
-
         parent_browser.download_video_url(self.video_url)
-        QMessageBox.information(self, "Download", "Download wurde gestartet und wird im Download-Manager angezeigt.")
+        QMessageBox.information(self, "Download", "Download wurde zur Queue hinzugefügt (Download-Manager).")
 
     def update_frame(self):
         if not self.is_seeking:
@@ -228,65 +532,90 @@ class VLCPlayerDialog(QDialog):
         super().closeEvent(event)
 
 
+# ---------------------------
+# WebEngine Page/View
+# ---------------------------
 class MyWebEnginePage(QWebEnginePage):
     def __init__(self, profile, parent=None):
         super().__init__(profile, parent)
-        
-        # Damit JavaScript auf die Zwischenablage zugreifen darf:
-        self.settings().setAttribute(
-            QWebEngineSettings.WebAttribute.JavascriptCanAccessClipboard,
-            True
-        )
-        
-        # Falls du noch andere Features (z.B. Geolocation usw.) manuell erlauben willst,
-        # kannst du das Signal hier abfangen:
+        self.settings().setAttribute(QWebEngineSettings.WebAttribute.JavascriptCanAccessClipboard, True)
         self.featurePermissionRequested.connect(self.onFeaturePermissionRequested)
 
     def onFeaturePermissionRequested(self, security_origin, feature):
-        """
-        Hier kannst du - wenn nötig - andere Features erlauben oder ablehnen,
-        z.B. Notifications, Geolocation, Kamera, Mikrofon etc.
-        """
-        # Beispiel: Alle Feature-Anfragen ablehnen, außer Geolocation
         if feature == QWebEnginePage.Feature.Geolocation:
-            self.setFeaturePermission(security_origin, feature,
-                                      QWebEnginePage.PermissionPolicy.PermissionGrantedByUser)
+            self.setFeaturePermission(
+                security_origin, feature,
+                QWebEnginePage.PermissionPolicy.PermissionGrantedByUser
+            )
         else:
-            self.setFeaturePermission(security_origin, feature,
-                                      QWebEnginePage.PermissionPolicy.PermissionDeniedByUser)
+            self.setFeaturePermission(
+                security_origin, feature,
+                QWebEnginePage.PermissionPolicy.PermissionDeniedByUser
+            )
 
 
 class CustomWebEngineView(QWebEngineView):
     def __init__(self, browser, profile):
         super().__init__()
         self.browser = browser
-        
-        # Unsere eigene Page-Klasse verwenden mit dem angegebenen Profil:
-        custom_page = MyWebEnginePage(profile, self)
-        self.setPage(custom_page)
+        self.setPage(MyWebEnginePage(profile, self))
 
     def createWindow(self, requested_window_type):
         reply = QMessageBox.question(
             self.browser,
             "Pop-up anfordern",
-            "Eine Webseite möchte ein Pop-up öffnen. Möchten Sie es erlauben?",
+            "Eine Webseite möchte ein neues Fenster/Tab öffnen. Erlauben?",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-            QMessageBox.StandardButton.No
+            QMessageBox.StandardButton.Yes
         )
-        if reply == QMessageBox.StandardButton.Yes:
-            popup_browser = CustomWebEngineView(self.browser, self.browser.profile)
-            i = self.browser.tabs.addTab(popup_browser, "Neues Fenster")
-            self.browser.tabs.setCurrentIndex(i)
-            return popup_browser
-        else:
+        if reply != QMessageBox.StandardButton.Yes:
             return None
 
+        popup_view = self.browser.create_configured_webview()
+        i = self.browser.tabs.addTab(popup_view, "Neues Fenster")
+        self.browser.tabs.setCurrentIndex(i)
+        self.browser.update_url_bar()
+        return popup_view
 
+
+# ---------------------------
+# Reader Mode Dialog
+# ---------------------------
+class ReaderDialog(QDialog):
+    def __init__(self, title: str, text: str, url: str, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Reader Mode")
+        self.resize(900, 650)
+
+        layout = QVBoxLayout(self)
+
+        header = QLabel(f"<h2>{title}</h2><div style='color:#9fb3d9'>{url}</div>")
+        header.setTextFormat(Qt.TextFormat.RichText)
+        header.setWordWrap(True)
+        layout.addWidget(header)
+
+        self.text = QTextEdit()
+        self.text.setReadOnly(True)
+        self.text.setPlainText(text.strip())
+        layout.addWidget(self.text)
+
+        btns = QHBoxLayout()
+        close_btn = QPushButton("Schließen")
+        close_btn.clicked.connect(self.accept)
+        btns.addStretch()
+        btns.addWidget(close_btn)
+        layout.addLayout(btns)
+
+
+# ---------------------------
+# Kleine Dialoge (Favoriten/Passwörter/History/Downloads/Plugins)
+# (weitgehend wie zuvor, aber kompakt gehalten)
+# ---------------------------
 class LoginDialog(QDialog):
     def __init__(self, parent=None, username="", password=""):
         super().__init__(parent)
         self.setWindowTitle("Zugangsdaten speichern")
-        layout = QVBoxLayout()
+        layout = QVBoxLayout(self)
 
         self.username_edit = QLineEdit()
         self.username_edit.setPlaceholderText("Benutzername")
@@ -305,8 +634,6 @@ class LoginDialog(QDialog):
         save_btn.clicked.connect(self.accept)
         layout.addWidget(save_btn)
 
-        self.setLayout(layout)
-
     def get_credentials(self):
         return self.username_edit.text(), self.password_edit.text()
 
@@ -315,93 +642,70 @@ class CredentialsManagerDialog(QDialog):
     def __init__(self, parent=None, credentials_dict=None):
         super().__init__(parent)
         self.setWindowTitle("Passwörter verwalten")
-        self.resize(400, 300)
+        self.resize(520, 340)
         self.credentials = credentials_dict.copy() if credentials_dict else {}
-        layout = QVBoxLayout()
 
+        layout = QVBoxLayout(self)
         self.list_widget = QListWidget()
         for domain in sorted(self.credentials.keys()):
-            item = QListWidgetItem(domain)
-            self.list_widget.addItem(item)
+            self.list_widget.addItem(QListWidgetItem(domain))
         layout.addWidget(self.list_widget)
 
         btn_layout = QHBoxLayout()
-        self.edit_btn = QPushButton("Bearbeiten")
-        self.delete_btn = QPushButton("Löschen")
-        self.edit_btn.clicked.connect(self.edit_credentials)
-        self.delete_btn.clicked.connect(self.delete_credentials)
-        btn_layout.addWidget(self.edit_btn)
-        btn_layout.addWidget(self.delete_btn)
+        edit_btn = QPushButton("Bearbeiten")
+        delete_btn = QPushButton("Löschen")
+        btn_layout.addWidget(edit_btn)
+        btn_layout.addWidget(delete_btn)
         layout.addLayout(btn_layout)
 
         close_btn = QPushButton("Schließen")
         close_btn.clicked.connect(self.accept)
         layout.addWidget(close_btn)
 
-        self.setLayout(layout)
+        edit_btn.clicked.connect(self.edit_credentials)
+        delete_btn.clicked.connect(self.delete_credentials)
 
     def edit_credentials(self):
-        selected_item = self.list_widget.currentItem()
-        if not selected_item:
+        item = self.list_widget.currentItem()
+        if not item:
             QMessageBox.information(self, "Info", "Bitte wählen Sie einen Eintrag aus.")
             return
-        domain = selected_item.text()
+        domain = item.text()
         creds = self.credentials[domain]
         dlg = LoginDialog(self, username=creds["username"], password=creds["password"])
         if dlg.exec() == QDialog.DialogCode.Accepted:
-            username, password = dlg.get_credentials()
-            if username and password:
-                self.credentials[domain] = {"username": username, "password": password}
+            u, p = dlg.get_credentials()
+            if u and p:
+                self.credentials[domain] = {"username": u, "password": p}
                 QMessageBox.information(self, "Erfolg", f"Zugangsdaten für {domain} geändert.")
             else:
-                QMessageBox.warning(
-                    self,
-                    "Warnung",
-                    "Benutzername und Passwort dürfen nicht leer sein."
-                )
+                QMessageBox.warning(self, "Warnung", "Benutzername und Passwort dürfen nicht leer sein.")
 
     def delete_credentials(self):
-        selected_item = self.list_widget.currentItem()
-        if not selected_item:
+        item = self.list_widget.currentItem()
+        if not item:
             QMessageBox.information(self, "Info", "Bitte wählen Sie einen Eintrag aus.")
             return
-        domain = selected_item.text()
-        reply = QMessageBox.question(
-            self,
-            "Löschen bestätigen",
-            f"Sollen die Zugangsdaten für {domain} wirklich gelöscht werden?",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-            QMessageBox.StandardButton.No
-        )
-        if reply == QMessageBox.StandardButton.Yes:
+        domain = item.text()
+        if QMessageBox.question(self, "Löschen", f"{domain} wirklich löschen?",
+                                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                                QMessageBox.StandardButton.No) == QMessageBox.StandardButton.Yes:
             del self.credentials[domain]
-            self.list_widget.takeItem(self.list_widget.row(selected_item))
-            QMessageBox.information(self, "Erfolg", f"Zugangsdaten für {domain} gelöscht.")
-
-    def refresh_list(self):
-        self.list_widget.clear()
-        for domain, creds in sorted(self.credentials.items()):
-            item = QListWidgetItem(domain)
-            self.list_widget.addItem(item)
+            self.list_widget.takeItem(self.list_widget.row(item))
 
 
 class EditFavoriteDialog(QDialog):
-    """
-    Dialog zum Bearbeiten eines einzelnen Favoriten (Titel/URL).
-    """
     def __init__(self, parent=None, title="", url=""):
         super().__init__(parent)
         self.setWindowTitle("Favorit bearbeiten")
-        layout = QVBoxLayout()
+        layout = QVBoxLayout(self)
 
         self.title_edit = QLineEdit()
-        self.title_edit.setPlaceholderText("Titel")
         self.title_edit.setText(title)
         layout.addWidget(QLabel("Titel:"))
         layout.addWidget(self.title_edit)
 
         self.url_edit = QLineEdit()
-        self.url_edit.setPlaceholderText("URL")
         self.url_edit.setText(url)
         layout.addWidget(QLabel("URL:"))
         layout.addWidget(self.url_edit)
@@ -410,61 +714,52 @@ class EditFavoriteDialog(QDialog):
         save_btn.clicked.connect(self.accept)
         layout.addWidget(save_btn)
 
-        self.setLayout(layout)
-
     def get_values(self):
         return self.title_edit.text(), self.url_edit.text()
 
 
 class FavoritesManagerDialog(QDialog):
-    """
-    Verwaltung für Favoriten (Bearbeiten / Löschen).
-    """
     def __init__(self, parent=None, favorites_list=None):
         super().__init__(parent)
         self.setWindowTitle("Favoriten verwalten")
-        self.resize(400, 300)
-        
+        self.resize(560, 360)
         self.favorites = favorites_list.copy() if favorites_list else []
-        
-        layout = QVBoxLayout()
 
+        layout = QVBoxLayout(self)
         self.list_widget = QListWidget()
-        for fav in sorted(self.favorites, key=lambda x: x["title"]):
-            item_text = f"{fav['title']}\n{fav['url']}"
-            item = QListWidgetItem(item_text)
-            self.list_widget.addItem(item)
         layout.addWidget(self.list_widget)
+        self.refresh_list()
 
         btn_layout = QHBoxLayout()
-        self.edit_btn = QPushButton("Bearbeiten")
-        self.delete_btn = QPushButton("Löschen")
-        self.edit_btn.clicked.connect(self.edit_favorite)
-        self.delete_btn.clicked.connect(self.delete_favorite)
-        btn_layout.addWidget(self.edit_btn)
-        btn_layout.addWidget(self.delete_btn)
+        edit_btn = QPushButton("Bearbeiten")
+        delete_btn = QPushButton("Löschen")
+        btn_layout.addWidget(edit_btn)
+        btn_layout.addWidget(delete_btn)
         layout.addLayout(btn_layout)
 
         close_btn = QPushButton("Schließen")
         close_btn.clicked.connect(self.accept)
         layout.addWidget(close_btn)
 
-        self.setLayout(layout)
+        edit_btn.clicked.connect(self.edit_favorite)
+        delete_btn.clicked.connect(self.delete_favorite)
+
+    def refresh_list(self):
+        self.list_widget.clear()
+        for fav in sorted(self.favorites, key=lambda x: x["title"]):
+            self.list_widget.addItem(QListWidgetItem(f"{fav['title']}\n{fav['url']}"))
 
     def edit_favorite(self):
-        selected_item = self.list_widget.currentItem()
-        if not selected_item:
-            QMessageBox.information(self, "Info", "Bitte wählen Sie einen Favoriten aus.")
+        item = self.list_widget.currentItem()
+        if not item:
             return
-        lines = selected_item.text().split("\n")
+        lines = item.text().split("\n")
         if len(lines) < 2:
             return
-        old_title = lines[0]
-        old_url = lines[1]
-        
-        edit_dlg = EditFavoriteDialog(self, old_title, old_url)
-        if edit_dlg.exec() == QDialog.DialogCode.Accepted:
-            new_title, new_url = edit_dlg.get_values()
+        old_title, old_url = lines[0], lines[1]
+        dlg = EditFavoriteDialog(self, old_title, old_url)
+        if dlg.exec() == QDialog.DialogCode.Accepted:
+            new_title, new_url = dlg.get_values()
             if new_title and new_url:
                 for fav in self.favorites:
                     if fav["title"] == old_title and fav["url"] == old_url:
@@ -472,81 +767,45 @@ class FavoritesManagerDialog(QDialog):
                         fav["url"] = new_url
                         break
                 self.refresh_list()
-                QMessageBox.information(self, "Erfolg", f"Favorit '{new_title}' bearbeitet.")
-            else:
-                QMessageBox.warning(
-                    self,
-                    "Warnung",
-                    "Titel und URL dürfen nicht leer sein."
-                )
 
     def delete_favorite(self):
-        selected_item = self.list_widget.currentItem()
-        if not selected_item:
-            QMessageBox.information(self, "Info", "Bitte wählen Sie einen Favoriten aus.")
+        item = self.list_widget.currentItem()
+        if not item:
             return
-        
-        lines = selected_item.text().split("\n")
+        lines = item.text().split("\n")
         if len(lines) < 2:
             return
-        fav_title = lines[0]
-        fav_url = lines[1]
-        
-        reply = QMessageBox.question(
-            self,
-            "Löschen bestätigen",
-            f"Sollen der Favorit '{fav_title}' wirklich gelöscht werden?",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-            QMessageBox.StandardButton.No
-        )
-        if reply == QMessageBox.StandardButton.Yes:
-            self.favorites = [
-                f for f in self.favorites
-                if not (f["title"] == fav_title and f["url"] == fav_url)
-            ]
+        t, u = lines[0], lines[1]
+        if QMessageBox.question(self, "Löschen", f"'{t}' wirklich löschen?",
+                                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                                QMessageBox.StandardButton.No) == QMessageBox.StandardButton.Yes:
+            self.favorites = [f for f in self.favorites if not (f["title"] == t and f["url"] == u)]
             self.refresh_list()
-            QMessageBox.information(self, "Erfolg", f"Favorit '{fav_title}' gelöscht.")
-
-    def refresh_list(self):
-        self.list_widget.clear()
-        for fav in sorted(self.favorites, key=lambda x: x["title"]):
-            item_text = f"{fav['title']}\n{fav['url']}"
-            item = QListWidgetItem(item_text)
-            self.list_widget.addItem(item)
 
 
 class HistoryDialog(QDialog):
-    """
-    Einfache Dialogklasse, um die Chronik anzuzeigen.
-    """
     def __init__(self, parent=None, history_list=None):
         super().__init__(parent)
-        self.setWindowTitle("Chronik anzeigen")
-        self.resize(400, 300)
+        self.setWindowTitle("Chronik")
+        self.resize(560, 360)
         self.history = history_list if history_list else []
 
-        layout = QVBoxLayout()
-
+        layout = QVBoxLayout(self)
         self.list_widget = QListWidget()
         for entry in self.history:
             title = entry.get("title", "Ohne Titel")
             url = entry.get("url", "")
-            item_text = f"{title}\n{url}"
-            item = QListWidgetItem(item_text)
-            self.list_widget.addItem(item)
+            self.list_widget.addItem(QListWidgetItem(f"{title}\n{url}"))
         layout.addWidget(self.list_widget)
-
-        self.list_widget.itemDoubleClicked.connect(self.navigate_from_history)
 
         close_btn = QPushButton("Schließen")
         close_btn.clicked.connect(self.accept)
         layout.addWidget(close_btn)
 
-        self.setLayout(layout)
+        self.list_widget.itemDoubleClicked.connect(self.navigate_from_history)
 
     def navigate_from_history(self, item):
-        text = item.text()
-        lines = text.split("\n")
+        lines = item.text().split("\n")
         if len(lines) >= 2:
             url = lines[-1]
             main_window = self.parent()
@@ -559,53 +818,46 @@ class WhoisDialog(QDialog):
     def __init__(self, domain_info, ip_info, parent=None):
         super().__init__(parent)
         self.setWindowTitle("WHOIS Informationen")
-        self.resize(600, 400)
-        
-        layout = QVBoxLayout()
-        
+        self.resize(720, 480)
+
+        layout = QVBoxLayout(self)
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         content = QWidget()
         scroll_layout = QVBoxLayout(content)
-        
+
         whois_label = QLabel("WHOIS Daten:")
         whois_text = QTextEdit()
         whois_text.setReadOnly(True)
         whois_text.setText(domain_info)
-        
+
         ip_label = QLabel("IP Informationen:")
         ip_text = QTextEdit()
         ip_text.setReadOnly(True)
         ip_text.setText(ip_info)
-        
+
         scroll_layout.addWidget(whois_label)
         scroll_layout.addWidget(whois_text)
         scroll_layout.addWidget(ip_label)
         scroll_layout.addWidget(ip_text)
         scroll.setWidget(content)
-        
         layout.addWidget(scroll)
-        
+
         close_btn = QPushButton("Schließen")
         close_btn.clicked.connect(self.accept)
         layout.addWidget(close_btn)
-        
-        self.setLayout(layout)
 
 
 class DownloadManagerDialog(QDialog):
-    """
-    Zeigt eine Tabelle aller Downloads an.
-    Ermöglicht das Abbrechen, Löschen von Downloads sowie das Öffnen der heruntergeladenen Dateien.
-    """
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowTitle("Download-Manager")
-        self.resize(700, 400)
+        self.resize(860, 460)
+        self.browser = parent
 
         self.table = QTableWidget()
-        self.table.setColumnCount(4)
-        self.table.setHorizontalHeaderLabels(["Dateiname", "Fortschritt", "Status", "Zielpfad"])
+        self.table.setColumnCount(5)
+        self.table.setHorizontalHeaderLabels(["Dateiname", "Fortschritt", "Status", "Zielpfad", "Typ"])
         self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
         self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self.table.setSelectionMode(QTableWidget.SelectionMode.SingleSelection)
@@ -618,28 +870,21 @@ class DownloadManagerDialog(QDialog):
         self.cancel_btn = QPushButton("Abbrechen")
         self.delete_btn = QPushButton("Entfernen")
         self.close_btn = QPushButton("Schließen")
-
         btn_layout.addWidget(self.cancel_btn)
         btn_layout.addWidget(self.delete_btn)
         btn_layout.addStretch()
         btn_layout.addWidget(self.close_btn)
-
         layout.addLayout(btn_layout)
-
-        self.setLayout(layout)
-
-        self.browser = parent
 
         self.cancel_btn.clicked.connect(self.cancel_download)
         self.delete_btn.clicked.connect(self.delete_download)
         self.close_btn.clicked.connect(self.accept)
+        self.table.itemDoubleClicked.connect(self.open_download)
 
         self.refresh_timer = QTimer(self)
-        self.refresh_timer.setInterval(500)  # alle 0,5 Sek
+        self.refresh_timer.setInterval(500)
         self.refresh_timer.timeout.connect(self.refresh_table)
         self.refresh_timer.start()
-
-        self.table.itemDoubleClicked.connect(self.open_download)
 
     def refresh_table(self):
         if not self.browser:
@@ -658,85 +903,51 @@ class DownloadManagerDialog(QDialog):
 
             status_item = QTableWidgetItem(dl.get("status", ""))
             path_item = QTableWidgetItem(dl.get("target_path", ""))
+            typ_item = QTableWidgetItem(dl.get("type", "web"))
 
             self.table.setItem(row, 0, filename_item)
             self.table.setCellWidget(row, 1, progress_bar)
             self.table.setItem(row, 2, status_item)
             self.table.setItem(row, 3, path_item)
+            self.table.setItem(row, 4, typ_item)
 
-    def get_selected_download_info(self):
-        selected_items = self.table.selectedItems()
-        if not selected_items:
+    def _selected(self):
+        items = self.table.selectedItems()
+        if not items:
             QMessageBox.information(self, "Info", "Bitte wählen Sie einen Download aus.")
             return None
-        download_info = selected_items[0].data(Qt.ItemDataRole.UserRole)
-        return download_info
+        return items[0].data(Qt.ItemDataRole.UserRole)
 
     def cancel_download(self):
-        download_info = self.get_selected_download_info()
-        if not download_info:
+        info = self._selected()
+        if not info:
             return
-
-        if download_info["status"] not in ["Läuft", "Wartet"]:
-            QMessageBox.warning(self, "Warnung", "Nur laufende oder wartende Downloads können abgebrochen werden.")
-            return
-
-        reply = QMessageBox.question(
-            self,
-            "Abbrechen bestätigen",
-            f"Sollen der Download '{download_info['filename']}' wirklich abgebrochen werden?",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-            QMessageBox.StandardButton.No
-        )
-        if reply == QMessageBox.StandardButton.Yes:
-            self.browser.cancel_download(download_info)
-            QMessageBox.information(self, "Abgebrochen", f"Download '{download_info['filename']}' wurde abgebrochen.")
+        self.browser.cancel_download(info)
 
     def delete_download(self):
-        download_info = self.get_selected_download_info()
-        if not download_info:
+        info = self._selected()
+        if not info:
             return
-
-        reply = QMessageBox.question(
-            self,
-            "Entfernen bestätigen",
-            f"Sollen der Download '{download_info['filename']}' wirklich entfernt werden?",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-            QMessageBox.StandardButton.No
-        )
-        if reply == QMessageBox.StandardButton.Yes:
-            self.browser.delete_download(download_info)
-            self.refresh_table()
-            QMessageBox.information(self, "Entfernt", f"Download '{download_info['filename']}' wurde entfernt.")
+        self.browser.delete_download(info)
 
     def open_download(self, item):
-        download_info = item.data(Qt.ItemDataRole.UserRole)
-        target_path = download_info.get("target_path")
-
+        info = item.data(Qt.ItemDataRole.UserRole)
+        target_path = info.get("target_path")
         if target_path and os.path.exists(target_path):
             QDesktopServices.openUrl(QUrl.fromLocalFile(target_path))
         else:
-            QMessageBox.warning(self, "Fehler", f"Die Datei '{target_path}' wurde nicht gefunden.")
+            QMessageBox.warning(self, "Fehler", f"Datei nicht gefunden:\n{target_path}")
 
 
-# --- NEU: Plugins verwalten (ohne Aktivieren/Deaktivieren) ---
 class PluginManagerDialog(QDialog):
-    """
-    Dialog zur Verwaltung der Plugins.
-    Zeigt eine Tabelle mit Plugin-Pfad.
-    Ermöglicht das Hinzufügen oder Entfernen.
-    """
     def __init__(self, parent=None, plugins_list=None):
         super().__init__(parent)
         self.setWindowTitle("Plugins verwalten")
-        self.resize(600, 400)
-
+        self.resize(700, 420)
         self.plugins = plugins_list.copy() if plugins_list else []
 
-        layout = QVBoxLayout()
-
+        layout = QVBoxLayout(self)
         self.table = QTableWidget()
-        # Nur 1 Spalte: "Plugin-Pfad"
         self.table.setColumnCount(1)
         self.table.setHorizontalHeaderLabels(["Plugin-Pfad"])
         self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
@@ -745,102 +956,91 @@ class PluginManagerDialog(QDialog):
         self.table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         layout.addWidget(self.table)
 
-        self.refresh_table()
-
         btn_layout = QHBoxLayout()
-        self.add_btn = QPushButton("Hinzufügen")
-        self.remove_btn = QPushButton("Entfernen")
-        self.close_btn = QPushButton("Schließen")
-
-        btn_layout.addWidget(self.add_btn)
-        btn_layout.addWidget(self.remove_btn)
+        add_btn = QPushButton("Hinzufügen")
+        remove_btn = QPushButton("Entfernen")
+        close_btn = QPushButton("Schließen")
+        btn_layout.addWidget(add_btn)
+        btn_layout.addWidget(remove_btn)
         btn_layout.addStretch()
-        btn_layout.addWidget(self.close_btn)
+        btn_layout.addWidget(close_btn)
         layout.addLayout(btn_layout)
 
-        self.add_btn.clicked.connect(self.add_plugin)
-        self.remove_btn.clicked.connect(self.remove_plugin)
-        self.close_btn.clicked.connect(self.accept)
+        add_btn.clicked.connect(self.add_plugin)
+        remove_btn.clicked.connect(self.remove_plugin)
+        close_btn.clicked.connect(self.accept)
 
-        self.setLayout(layout)
+        self.refresh_table()
 
     def refresh_table(self):
         self.table.setRowCount(len(self.plugins))
         for row, plugin in enumerate(self.plugins):
-            path_item = QTableWidgetItem(plugin["path"])
-            self.table.setItem(row, 0, path_item)
+            self.table.setItem(row, 0, QTableWidgetItem(plugin["path"]))
 
     def add_plugin(self):
-        file_path, _ = QFileDialog.getOpenFileName(
-            self,
-            "Plugin hinzufügen",
-            "",
-            "Python-Dateien (*.py);;Alle Dateien (*)"
-        )
+        file_path, _ = QFileDialog.getOpenFileName(self, "Plugin hinzufügen", "", "Python-Dateien (*.py);;Alle Dateien (*)")
         if not file_path:
             return
-        # Plugin an Liste anhängen
         self.plugins.append({"path": file_path})
         self.refresh_table()
 
     def remove_plugin(self):
         row = self.table.currentRow()
         if row < 0:
-            QMessageBox.information(self, "Info", "Bitte wähle ein Plugin aus.")
             return
-        reply = QMessageBox.question(
-            self,
-            "Plugin entfernen",
-            "Möchtest du dieses Plugin wirklich entfernen?",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-            QMessageBox.StandardButton.No
-        )
-        if reply == QMessageBox.StandardButton.Yes:
+        if QMessageBox.question(self, "Entfernen", "Plugin wirklich entfernen?",
+                                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                                QMessageBox.StandardButton.No) == QMessageBox.StandardButton.Yes:
             self.plugins.pop(row)
             self.refresh_table()
 
 
+# ---------------------------
+# Browser
+# ---------------------------
 class Browser(QMainWindow):
+    MAX_PARALLEL_YTDLP = 2
+
     def __init__(self):
         super().__init__()
         self.setWindowTitle("TMP-Networks Browser Mini")
-        self.setGeometry(100, 100, 1200, 800)
+        self.setGeometry(100, 100, 1320, 860)
+
         self.load_data()
+        self.data.setdefault("history", [])
+        self.data.setdefault("plugins", [])
+        self.data.setdefault("adblock_enabled", True)
 
-        # Sicherstellen, dass die nötigen Keys existieren
-        if "history" not in self.data:
-            self.data["history"] = []
-        if "plugins" not in self.data:
-            self.data["plugins"] = []  # Liste von dicts mit {"path":...}
-
-        # Listen für Downloads
+        # Downloads
         self.active_downloads_info = []
         self.all_downloads_info = []
 
+        # yt-dlp Queue
+        self.ytdlp_queue = deque()
+        self.ytdlp_running = 0
+
+        # Tabs
         self.tabs = QTabWidget()
         self.tabs.setDocumentMode(True)
         self.tabs.setTabsClosable(True)
         self.tabs.tabCloseRequested.connect(self.close_current_tab)
-        self.tabs.currentChanged.connect(self.update_url_bar)
+        self.tabs.currentChanged.connect(lambda _: self.update_url_bar())
         self.setCentralWidget(self.tabs)
 
+        # Menü
         menu_bar = self.menuBar()
 
-        # Favoriten-Menü
         self.fav_menu = QMenu("Favoriten", self)
         menu_bar.addMenu(self.fav_menu)
         add_fav_action = QAction("Favorit hinzufügen", self)
         add_fav_action.triggered.connect(self.add_favorite)
         self.fav_menu.addAction(add_fav_action)
         self.fav_menu.addSeparator()
-
         manage_fav_action = QAction("Favoriten verwalten", self)
         manage_fav_action.triggered.connect(self.manage_favorites)
         self.fav_menu.addAction(manage_fav_action)
-
         self.update_favorites_menu()
 
-        # Passwörter-Menü
         self.pass_menu = QMenu("Passwörter", self)
         menu_bar.addMenu(self.pass_menu)
         save_pass_action = QAction("Zugangsdaten speichern", self)
@@ -853,35 +1053,45 @@ class Browser(QMainWindow):
         manage_pass_action.triggered.connect(self.manage_credentials)
         self.pass_menu.addAction(manage_pass_action)
 
-        # Chronik-Menü
         self.history_menu = QMenu("Chronik", self)
         menu_bar.addMenu(self.history_menu)
         show_history_action = QAction("Chronik anzeigen", self)
         show_history_action.triggered.connect(self.view_history)
         self.history_menu.addAction(show_history_action)
 
-        # Download-Manager-Menü
         self.download_menu = QMenu("Downloads", self)
         menu_bar.addMenu(self.download_menu)
         show_download_mgr_action = QAction("Download-Manager öffnen", self)
         show_download_mgr_action.triggered.connect(self.open_download_manager)
         self.download_menu.addAction(show_download_mgr_action)
 
-        # Plugins-Menü
+        self.view_menu = QMenu("Ansicht", self)
+        menu_bar.addMenu(self.view_menu)
+        reader_action = QAction("Reader Mode (Lesansicht)", self)
+        reader_action.triggered.connect(self.open_reader_mode)
+        self.view_menu.addAction(reader_action)
+
+        self.privacy_menu = QMenu("Privacy", self)
+        menu_bar.addMenu(self.privacy_menu)
+        self.adblock_action = QAction("Adblock aktiv", self)
+        self.adblock_action.setCheckable(True)
+        self.adblock_action.setChecked(bool(self.data.get("adblock_enabled", True)))
+        self.adblock_action.triggered.connect(self.toggle_adblock)
+        self.privacy_menu.addAction(self.adblock_action)
+
         self.plugin_menu = QMenu("Plugins", self)
         menu_bar.addMenu(self.plugin_menu)
-
         add_plugin_action = QAction("Plugin hinzufügen", self)
         add_plugin_action.triggered.connect(self.add_plugin)
         self.plugin_menu.addAction(add_plugin_action)
-
         manage_plugins_action = QAction("Plugins verwalten", self)
         manage_plugins_action.triggered.connect(self.manage_plugins)
         self.plugin_menu.addAction(manage_plugins_action)
 
-        # Navigation Bar
+        # Toolbar
         navigation_bar = QToolBar("Navigation")
         navigation_bar.setIconSize(QSize(24, 24))
+        navigation_bar.setMovable(False)
         self.addToolBar(navigation_bar)
 
         emoji_font = get_emoji_font()
@@ -917,7 +1127,8 @@ class Browser(QMainWindow):
         navigation_bar.addAction(home_button)
 
         self.url_bar = QLineEdit()
-        self.url_bar.returnPressed.connect(self.navigate_to_url)
+        self.url_bar.setPlaceholderText("URL eingeben oder suchen …")
+        self.url_bar.returnPressed.connect(self.navigate_to_url_or_search)
         navigation_bar.addWidget(self.url_bar)
 
         spacer = QWidget()
@@ -925,7 +1136,7 @@ class Browser(QMainWindow):
         navigation_bar.addWidget(spacer)
 
         video_scan_button = QAction("🎥", self)
-        video_scan_button.setToolTip("Videos scannen und abspielen (höchste Auflösung)")
+        video_scan_button.setToolTip("Videos scannen und abspielen (yt-dlp)")
         video_scan_button.setFont(emoji_font)
         video_scan_button.triggered.connect(self.scan_and_play_videos)
         navigation_bar.addAction(video_scan_button)
@@ -936,6 +1147,7 @@ class Browser(QMainWindow):
         whois_button.triggered.connect(self.show_whois_info)
         navigation_bar.addAction(whois_button)
 
+        # Statusbar
         self.status = QStatusBar()
         self.setStatusBar(self.status)
 
@@ -944,157 +1156,90 @@ class Browser(QMainWindow):
         self.download_progress_bar.setRange(0, 100)
         self.status.addPermanentWidget(self.download_progress_bar)
 
-        # QWebEngineProfile mit persistentem Speicherpfad
+        self.glow_bar = GlowProgressBar()
+        self.glow_bar.setVisible(False)
+        self.status.addPermanentWidget(self.glow_bar)
+
+        # Profile
         self.profile = QWebEngineProfile("TMPNetworksBrowserProfile", self)
         self.profile.setPersistentStoragePath(json_dir)
         self.profile.setPersistentCookiesPolicy(QWebEngineProfile.PersistentCookiesPolicy.ForcePersistentCookies)
         self.profile.downloadRequested.connect(self.on_downloadRequested)
 
+        # Adblock Interceptor
+        self.adblock = AdBlockInterceptor(enabled=bool(self.data.get("adblock_enabled", True)), parent=self)
+        self.profile.setUrlRequestInterceptor(self.adblock)
+
+        # Start
         self.add_new_tab(QUrl('https://www.google.com'), 'Startseite')
         self.download_manager_dialog = None
 
-        # Plugins laden
+        # Plugins
         self.loaded_plugin_modules = {}
         self.load_plugins()
 
-    # --- Plugin-Handling ---
-    def load_plugins(self):
-        """
-        Lädt alle Plugins (Pfad) aus self.data["plugins"].
-        Wenn das Plugin eine Funktion 'initialize_plugin(browser)' definiert, wird sie aufgerufen.
-        """
-        for plugin_info in self.data["plugins"]:
-            path = plugin_info["path"]
-            try:
-                spec = importlib.util.spec_from_file_location("temp_plugin", path)
-                plugin_module = importlib.util.module_from_spec(spec)
-                spec.loader.exec_module(plugin_module)
+    # ---------------------------
+    # WebView Factory
+    # ---------------------------
+    def create_configured_webview(self) -> CustomWebEngineView:
+        view = CustomWebEngineView(self, self.profile)
 
-                # Falls das Plugin eine spezielle Init-Funktion hat
-                if hasattr(plugin_module, "initialize_plugin"):
-                    plugin_module.initialize_plugin(self)
+        view.loadStarted.connect(self.on_load_started)
+        view.loadProgress.connect(self.on_load_progress)
+        view.loadFinished.connect(lambda _, b=view: self.on_load_finished(b))
 
-                self.loaded_plugin_modules[path] = plugin_module
-            except Exception as e:
-                print(f"Fehler beim Laden des Plugins '{path}': {e}")
+        view.urlChanged.connect(lambda new_url, b=view: self.update_url_bar(new_url, b))
+        view.titleChanged.connect(lambda title, b=view: self.on_title_changed(title, b))
+        view.iconChanged.connect(lambda icon, b=view: self.on_icon_changed(icon, b))
 
-    def unload_all_plugins(self):
-        """
-        Entfernt alle geladenen Plugins aus self.loaded_plugin_modules.
-        Hier könnte man ggf. pro Plugin noch einen 'finalize_plugin' Hook aufrufen.
-        """
-        for path, plugin_module in self.loaded_plugin_modules.items():
-            if hasattr(plugin_module, "finalize_plugin"):
-                try:
-                    plugin_module.finalize_plugin(self)
-                except Exception as e:
-                    print(f"Fehler bei finalize_plugin in {path}: {e}")
+        return view
 
-        self.loaded_plugin_modules.clear()
+    def on_load_started(self):
+        self.glow_bar.setVisible(True)
+        self.glow_bar.setValue(5)
+        self.glow_bar.startGlow()
 
-    def add_plugin(self):
-        """
-        Fügt ein Plugin (Pfad) direkt hinzu und startet neu.
-        """
-        file_path, _ = QFileDialog.getOpenFileName(
-            self,
-            "Plugin hinzufügen",
-            "",
-            "Python-Dateien (*.py);;Alle Dateien (*)"
-        )
-        if not file_path:
-            return
-        # Plugin in self.data ablegen
-        self.data["plugins"].append({"path": file_path})
-        self.save_data()
+    def on_load_progress(self, p: int):
+        self.glow_bar.setVisible(True)
+        self.glow_bar.setValue(max(1, p))
+        if p >= 100:
+            # kleines Delay, dann ausblenden
+            QTimer.singleShot(250, self._hide_glow)
 
-        QMessageBox.information(
-            self,
-            "Neustart",
-            "Plugin hinzugefügt. Die Anwendung wird nun neu gestartet."
-        )
-        self.restart_application()
+    def _hide_glow(self):
+        self.glow_bar.stopGlow()
+        self.glow_bar.setVisible(False)
 
-    def manage_plugins(self):
-        """
-        Öffnet den Dialog zur Plugin-Verwaltung und startet bei Änderung neu.
-        """
-        # Alte Liste zwischenspeichern, um festzustellen, ob sich etwas ändert
-        old_plugins = self.data["plugins"][:]
+    def on_load_finished(self, browser: CustomWebEngineView):
+        # Tabtitel final setzen, URL-Bar aktualisieren
+        idx = self.tabs.indexOf(browser)
+        if idx >= 0:
+            self.tabs.setTabText(idx, browser.page().title() or "Neue Seite")
+        if browser == self.tabs.currentWidget():
+            self.update_url_bar()
+        self.check_credentials(browser)
 
-        dlg = PluginManagerDialog(self, plugins_list=self.data["plugins"])
-        if dlg.exec() == QDialog.DialogCode.Accepted:
-            # Liste aktualisieren
-            self.data["plugins"] = dlg.plugins
-            self.save_data()
+    def on_title_changed(self, title: str, browser: CustomWebEngineView):
+        idx = self.tabs.indexOf(browser)
+        if idx >= 0:
+            self.tabs.setTabText(idx, title if title else "Neue Seite")
 
-            # Prüfen, ob sich etwas geändert hat
-            if self.data["plugins"] != old_plugins:
-                # Änderungen -> wir starten die App neu
-                QMessageBox.information(
-                    self,
-                    "Neustart",
-                    "Die Plugin-Liste hat sich geändert. Das Programm wird neu gestartet."
-                )
-                self.restart_application()
+    def on_icon_changed(self, icon: QIcon, browser: CustomWebEngineView):
+        idx = self.tabs.indexOf(browser)
+        if idx >= 0 and not icon.isNull():
+            self.tabs.setTabIcon(idx, icon)
 
-    def restart_application(self):
-        """
-        Führt einen harten Neustart des aktuellen Python-Skripts durch.
-        """
-        import sys
-        import os
-
-        python = sys.executable
-        os.execl(python, python, *sys.argv)
-
-    # --- Ende Plugin-Handling ---
-
-    def load_data(self):
-        if os.path.exists(DATA_FILE):
-            try:
-                with open(DATA_FILE, 'r', encoding='utf-8') as f:
-                    self.data = json.load(f)
-            except json.JSONDecodeError:
-                QMessageBox.warning(self, "Fehler", f"Die Datei {DATA_FILE} ist beschädigt.")
-                self.data = {"favorites": [], "credentials": {}, "history": [], "plugins": []}
-        else:
-            self.data = {"favorites": [], "credentials": {}, "history": [], "plugins": []}
-
-    def save_data(self):
-        try:
-            serializable_data = self.make_serializable(self.data)
-            with open(DATA_FILE, 'w', encoding='utf-8') as f:
-                json.dump(serializable_data, f, indent=4, ensure_ascii=False)
-        except Exception as e:
-            QMessageBox.critical(self, "Fehler", f"Beim Speichern der Daten ist ein Fehler aufgetreten:\n{e}")
-
-    def make_serializable(self, obj):
-        if isinstance(obj, dict):
-            return {k: self.make_serializable(v) for k, v in obj.items()}
-        elif isinstance(obj, list):
-            return [self.make_serializable(item) for item in obj]
-        elif isinstance(obj, datetime):
-            return obj.strftime('%Y-%m-%d %H:%M:%S')
-        else:
-            return obj
-
-    def add_to_history(self, title, url):
-        if not title:
-            title = "Ohne Titel"
-        self.data["history"].append({"title": title, "url": url})
-        self.save_data()
-
+    # ---------------------------
+    # Tabs
+    # ---------------------------
     def add_new_tab(self, qurl=None, label="Neue Seite"):
         if not qurl:
             qurl = QUrl("https://www.google.com")
-        browser = CustomWebEngineView(self, self.profile)
+        browser = self.create_configured_webview()
         browser.setUrl(qurl)
-        browser.loadFinished.connect(lambda _, b=browser: self.check_credentials(b))
-        browser.loadFinished.connect(lambda _, b=browser: self.tabs.setTabText(self.tabs.indexOf(b), b.page().title()))
-        browser.urlChanged.connect(lambda new_url, b=browser: self.update_url_bar(new_url, b))
         i = self.tabs.addTab(browser, label)
         self.tabs.setCurrentIndex(i)
+        self.update_url_bar()
 
     def close_current_tab(self, index):
         self.tabs.removeTab(index)
@@ -1102,22 +1247,35 @@ class Browser(QMainWindow):
             self.close()
 
     def update_url_bar(self, qurl=None, browser=None):
-        if browser != self.tabs.currentWidget():
+        current = self.tabs.currentWidget()
+        if current is None:
+            return
+        if browser is not None and browser != current:
             return
         if qurl is None:
-            qurl = self.tabs.currentWidget().url()
+            qurl = current.url()
+
         self.url_bar.setText(qurl.toString())
         self.url_bar.setCursorPosition(0)
 
-        current_title = self.tabs.currentWidget().page().title()
-        current_url = qurl.toString()
-        if current_url and current_url != "about:blank":
-            self.add_to_history(current_title, current_url)
+        title = current.page().title()
+        url_str = qurl.toString()
+        if url_str and url_str != "about:blank":
+            self.add_to_history(title, url_str)
 
-    def navigate_to_url(self):
-        q = QUrl(self.url_bar.text())
-        if q.scheme() == "":
-            q.setScheme("http")
+    # ---------------------------
+    # Navigation: URL oder Suche
+    # ---------------------------
+    def navigate_to_url_or_search(self):
+        text = self.url_bar.text().strip()
+        if not text:
+            return
+
+        if looks_like_url(text):
+            q = normalize_to_url(text)
+        else:
+            q = google_search_url(text)
+
         self.tabs.currentWidget().setUrl(q)
 
     def navigate_home(self):
@@ -1126,11 +1284,101 @@ class Browser(QMainWindow):
     def navigate_to_url_string(self, url_string):
         if not url_string:
             return
-        q = QUrl(url_string)
-        if q.scheme() == "":
-            q.setScheme("http")
+        q = normalize_to_url(url_string) if looks_like_url(url_string) else google_search_url(url_string)
         self.tabs.currentWidget().setUrl(q)
 
+    # ---------------------------
+    # Reader Mode
+    # ---------------------------
+    def open_reader_mode(self):
+        browser = self.tabs.currentWidget()
+        if not browser:
+            return
+
+        js = r"""
+        (function() {
+            function textOf(el){
+                if(!el) return "";
+                return (el.innerText || el.textContent || "").trim();
+            }
+
+            // Try common article containers first
+            var candidates = [
+                document.querySelector('article'),
+                document.querySelector('main'),
+                document.querySelector('[role="main"]'),
+                document.querySelector('.post'),
+                document.querySelector('.article'),
+                document.querySelector('#content')
+            ].filter(Boolean);
+
+            var best = null;
+            var bestLen = 0;
+
+            function score(node){
+                var t = textOf(node);
+                return t.length;
+            }
+
+            for (var i=0;i<candidates.length;i++){
+                var s = score(candidates[i]);
+                if (s > bestLen){
+                    bestLen = s;
+                    best = candidates[i];
+                }
+            }
+
+            // Fallback: find largest text block among div/section
+            if(!best){
+                var nodes = document.querySelectorAll('div, section');
+                for (var j=0;j<nodes.length;j++){
+                    var s2 = score(nodes[j]);
+                    if (s2 > bestLen){
+                        bestLen = s2;
+                        best = nodes[j];
+                    }
+                }
+            }
+
+            var title = document.title || "";
+            var url = location.href || "";
+            var body = best ? textOf(best) : textOf(document.body);
+
+            // cleanup: collapse whitespace
+            body = body.replace(/\n{3,}/g, "\n\n");
+
+            return {title: title, url: url, text: body};
+        })();
+        """
+        browser.page().runJavaScript(js, self._show_reader_dialog)
+
+    def _show_reader_dialog(self, result):
+        if not result or not isinstance(result, dict):
+            QMessageBox.warning(self, "Reader Mode", "Konnte den Inhalt nicht extrahieren.")
+            return
+        title = result.get("title", "")
+        url = result.get("url", "")
+        text = result.get("text", "")
+
+        if not text or len(text.strip()) < 50:
+            QMessageBox.information(self, "Reader Mode", "Zu wenig Text gefunden (oder Seite blockiert).")
+            return
+
+        dlg = ReaderDialog(title, text, url, self)
+        dlg.exec()
+
+    # ---------------------------
+    # Adblock
+    # ---------------------------
+    def toggle_adblock(self, checked: bool):
+        self.data["adblock_enabled"] = bool(checked)
+        self.save_data()
+        self.adblock.setEnabled(bool(checked))
+        self.status.showMessage(f"Adblock: {'AN' if checked else 'AUS'} (Reload empfohlen)", 4000)
+
+    # ---------------------------
+    # Download Manager
+    # ---------------------------
     def open_download_manager(self):
         if not self.download_manager_dialog:
             self.download_manager_dialog = DownloadManagerDialog(self)
@@ -1140,106 +1388,260 @@ class Browser(QMainWindow):
 
     def on_downloadRequested(self, download):
         url = download.url().toString()
-        # Prüfe, ob es sich um eine .m3u8 URL handelt
+
+        # m3u8 -> yt-dlp Queue
         if url.endswith('.m3u8'):
-            # Verwende download_video_url, um den Download zu verwalten
             self.download_video_url(url)
+            return
+
+        file_path, _ = QFileDialog.getSaveFileName(
+            self, "Speichern unter", download.downloadFileName() or "", "Alle Dateien (*)"
+        )
+        if not file_path:
+            return
+
+        directory = os.path.dirname(file_path)
+        filename_only = os.path.basename(file_path)
+        download.setDownloadDirectory(directory)
+        download.setDownloadFileName(filename_only)
+        download.accept()
+
+        download_info = {
+            "type": "web",
+            "download_obj": download,
+            "filename": filename_only,
+            "target_path": file_path,
+            "progress_percent": 0,
+            "status": "Läuft",
+            "timer": None
+        }
+        self.active_downloads_info.append(download_info)
+        self.all_downloads_info.append(download_info)
+
+        timer = QTimer(self)
+        timer.setInterval(500)
+        timer.timeout.connect(partial(self.poll_webengine_download, download_info))
+        timer.start()
+        download_info["timer"] = timer
+
+        download.stateChanged.connect(partial(self.handle_webengine_download_state_changed, download_info))
+
+        self.download_progress_bar.setVisible(True)
+        self.status.showMessage(f"Download gestartet: {filename_only}")
+
+    def poll_webengine_download(self, download_info):
+        d = download_info.get("download_obj")
+        if not d:
+            return
+        received = d.receivedBytes()
+        total = d.totalBytes()
+        if total > 0:
+            percent = int(received / total * 100)
+            download_info["progress_percent"] = max(0, min(100, percent))
+            self.download_progress_bar.setRange(0, 100)
+            self.download_progress_bar.setValue(download_info["progress_percent"])
         else:
-            file_path, _ = QFileDialog.getSaveFileName(
-                self,
-                "Speichern unter",
-                download.downloadFileName() or "",
-                "Alle Dateien (*)"
-            )
-            if file_path:
-                directory = os.path.dirname(file_path)
-                filename_only = os.path.basename(file_path)
-                download.setDownloadDirectory(directory)
-                download.setDownloadFileName(filename_only)
-                download.accept()
+            self.download_progress_bar.setRange(0, 0)
 
-                download_info = {
-                    "download_obj": download,
-                    "filename": filename_only,
-                    "target_path": file_path,
-                    "progress_percent": 0,
-                    "status": "Läuft",
-                    "timer": None
-                }
-                self.active_downloads_info.append(download_info)
-                self.all_downloads_info.append(download_info)
-                print(f"Download gestartet: {filename_only}")
+        if self.download_manager_dialog and self.download_manager_dialog.isVisible():
+            self.download_manager_dialog.refresh_table()
 
-                timer = QTimer(self)
-                timer.setInterval(500)
-                timer.timeout.connect(partial(self.poll_download, download_info))
-                timer.start()
-                download_info["timer"] = timer
-
-                download.stateChanged.connect(
-                    partial(self.handle_download_state_changed, download_info)
-                )
-
-                self.download_progress_bar.setVisible(True)
-                self.status.showMessage(f"Download gestartet: {filename_only}")
-
-    def poll_download(self, download_info):
-        if "download_obj" in download_info:
-            download = download_info["download_obj"]
-            received = download.receivedBytes()
-            total = download.totalBytes()
-
-            if total > 0:
-                percent = int(received / total * 100)
-                percent = min(percent, 100)
-                download_info["progress_percent"] = percent
-                self.download_progress_bar.setValue(percent)
-                print(f"Download Fortschritt: {percent}% - {download_info['filename']}")
-            else:
-                self.download_progress_bar.setRange(0, 0)
-                print(f"Download Fortschritt: Unbestimmt - {download_info['filename']}")
-
-    def handle_download_state_changed(self, download_info, state):
+    def handle_webengine_download_state_changed(self, download_info, state):
         if state == QWebEngineDownloadRequest.DownloadState.DownloadCompleted:
             download_info["status"] = "Fertig"
             download_info["progress_percent"] = 100
-            self.status.showMessage(f"Download abgeschlossen: {download_info['target_path']}")
-            print(f"Download abgeschlossen: {download_info['filename']}")
-            if download_info["timer"]:
-                download_info["timer"].stop()
-            self.download_progress_bar.setValue(100)
-            if download_info in self.active_downloads_info:
-                self.active_downloads_info.remove(download_info)
-            if not self.active_downloads_info:
-                self.download_progress_bar.setVisible(False)
-                self.status.clearMessage()
-            else:
-                max_progress = max(dl["progress_percent"] for dl in self.active_downloads_info)
-                self.download_progress_bar.setValue(max_progress)
-
         elif state in (
             QWebEngineDownloadRequest.DownloadState.DownloadCancelled,
             QWebEngineDownloadRequest.DownloadState.DownloadInterrupted
         ):
             download_info["status"] = "Fehlgeschlagen"
-            self.status.showMessage(f"Download fehlgeschlagen oder abgebrochen: {download_info['target_path']}")
-            print(f"Download fehlgeschlagen oder abgebrochen: {download_info['filename']}")
-            if download_info["timer"]:
-                download_info["timer"].stop()
-            self.download_progress_bar.setValue(0)
-            if download_info in self.active_downloads_info:
-                self.active_downloads_info.remove(download_info)
-            if not self.active_downloads_info:
-                self.download_progress_bar.setVisible(False)
-                self.status.clearMessage()
-            else:
-                max_progress = max(dl["progress_percent"] for dl in self.active_downloads_info)
-                self.download_progress_bar.setValue(max_progress)
+
+        if download_info.get("timer"):
+            download_info["timer"].stop()
+
+        if download_info in self.active_downloads_info:
+            self.active_downloads_info.remove(download_info)
+
+        self._recompute_global_download_bar()
 
         if self.download_manager_dialog and self.download_manager_dialog.isVisible():
             self.download_manager_dialog.refresh_table()
 
-    # ---- Favoriten ----
+    def _recompute_global_download_bar(self):
+        if not self.active_downloads_info:
+            self.download_progress_bar.setVisible(False)
+            self.download_progress_bar.setRange(0, 100)
+            self.status.clearMessage()
+            return
+        self.download_progress_bar.setVisible(True)
+        self.download_progress_bar.setRange(0, 100)
+        max_progress = max(dl.get("progress_percent", 0) for dl in self.active_downloads_info)
+        self.download_progress_bar.setValue(max_progress)
+
+    # ---------------------------
+    # yt-dlp Download Queue
+    # ---------------------------
+    def download_video_url(self, url):
+        """
+        Fügt einen yt-dlp Download in die Queue ein.
+        """
+        # Erst Metadaten holen (für Dateiname)
+        ydl_opts = {'quiet': True, 'no_warnings': True, 'skip_download': True}
+        try:
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                info = ydl.extract_info(url, download=False)
+                ext = info.get('ext', 'mp4')
+                title = info.get('title', 'downloaded_video')
+                title = re.sub(r'[\\/*?:"<>|]', "", title)
+                default_filename = f"{title}.{ext}"
+        except Exception as e:
+            QMessageBox.warning(self, "Download-Fehler", f"Fehler beim Abrufen der Videoinformationen:\n{e}")
+            return
+
+        save_path, _ = QFileDialog.getSaveFileName(
+            self, "Video speichern unter", default_filename,
+            f"Video Dateien (*.{ext});;Alle Dateien (*)"
+        )
+        if not save_path:
+            return
+
+        download_info = {
+            "type": "ytdlp",
+            "url": url,
+            "filename": os.path.basename(save_path),
+            "target_path": save_path,
+            "progress_percent": 0,
+            "status": "Wartet",
+            "worker": None,
+            "thread": None
+        }
+        self.all_downloads_info.append(download_info)
+        self.active_downloads_info.append(download_info)
+        self.ytdlp_queue.append(download_info)
+
+        self._recompute_global_download_bar()
+        if self.download_manager_dialog and self.download_manager_dialog.isVisible():
+            self.download_manager_dialog.refresh_table()
+
+        self._try_start_next_ytdlp()
+
+    def _try_start_next_ytdlp(self):
+        while self.ytdlp_running < self.MAX_PARALLEL_YTDLP and self.ytdlp_queue:
+            info = self.ytdlp_queue.popleft()
+            if info.get("status") != "Wartet":
+                continue
+            self._start_ytdlp_download(info)
+
+    def _start_ytdlp_download(self, download_info):
+        url = download_info["url"]
+        save_path = download_info["target_path"]
+
+        thread = QThread()
+        worker = DownloadWorker(url, save_path)
+        worker.moveToThread(thread)
+
+        self.ytdlp_running += 1
+        download_info["status"] = "Läuft"
+        download_info["worker"] = worker
+        download_info["thread"] = thread
+
+        thread.started.connect(worker.run)
+        worker.progress.connect(lambda p, di=download_info: self._ytdlp_progress(di, p))
+        worker.status.connect(lambda s, di=download_info: self._ytdlp_status(di, s))
+        worker.error.connect(lambda e, di=download_info: self._ytdlp_error(di, e))
+        worker.finished.connect(thread.quit)
+        worker.finished.connect(worker.deleteLater)
+        worker.finished.connect(lambda di=download_info: self._ytdlp_finished(di))
+        thread.finished.connect(thread.deleteLater)
+
+        thread.start()
+
+        self.status.showMessage(f"yt-dlp Download gestartet: {download_info['filename']}")
+        self._recompute_global_download_bar()
+
+        if self.download_manager_dialog and self.download_manager_dialog.isVisible():
+            self.download_manager_dialog.refresh_table()
+
+    def _ytdlp_progress(self, download_info, percent):
+        download_info["progress_percent"] = percent
+        self._recompute_global_download_bar()
+        if self.download_manager_dialog and self.download_manager_dialog.isVisible():
+            self.download_manager_dialog.refresh_table()
+
+    def _ytdlp_status(self, download_info, status):
+        download_info["status"] = status
+        if self.download_manager_dialog and self.download_manager_dialog.isVisible():
+            self.download_manager_dialog.refresh_table()
+
+    def _ytdlp_error(self, download_info, error_message):
+        QMessageBox.warning(self, "Download-Fehler", f"Fehler bei {download_info['filename']}:\n{error_message}")
+
+    def _ytdlp_finished(self, download_info):
+        # running--
+        self.ytdlp_running = max(0, self.ytdlp_running - 1)
+
+        # aus active entfernen (aber in all behalten)
+        if download_info in self.active_downloads_info:
+            self.active_downloads_info.remove(download_info)
+
+        self._recompute_global_download_bar()
+        if self.download_manager_dialog and self.download_manager_dialog.isVisible():
+            self.download_manager_dialog.refresh_table()
+
+        # nächste starten
+        self._try_start_next_ytdlp()
+
+    def cancel_download(self, download_info):
+        typ = download_info.get("type", "web")
+        status = download_info.get("status")
+
+        if typ == "ytdlp":
+            # Wenn Wartet: aus Queue entfernen
+            if status == "Wartet":
+                download_info["status"] = "Abgebrochen"
+                # Remove from queue if present
+                try:
+                    self.ytdlp_queue.remove(download_info)
+                except ValueError:
+                    pass
+                if download_info in self.active_downloads_info:
+                    self.active_downloads_info.remove(download_info)
+                self._recompute_global_download_bar()
+                return
+
+            # Wenn läuft: worker cancel
+            worker = download_info.get("worker")
+            if worker and status in ("Läuft", "Wartet"):
+                worker.cancel()
+                download_info["status"] = "Abgebrochen"
+            # active removal passiert beim finished hook
+
+        else:
+            d = download_info.get("download_obj")
+            if d and status == "Läuft":
+                d.cancel()
+                download_info["status"] = "Abgebrochen"
+
+        self._recompute_global_download_bar()
+        if self.download_manager_dialog and self.download_manager_dialog.isVisible():
+            self.download_manager_dialog.refresh_table()
+
+    def delete_download(self, download_info):
+        # Erst canceln, dann aus Listen entfernen
+        self.cancel_download(download_info)
+
+        if download_info in self.active_downloads_info:
+            self.active_downloads_info.remove(download_info)
+        if download_info in self.all_downloads_info:
+            self.all_downloads_info.remove(download_info)
+
+        self._recompute_global_download_bar()
+        if self.download_manager_dialog and self.download_manager_dialog.isVisible():
+            self.download_manager_dialog.refresh_table()
+
+    # ---------------------------
+    # Favoriten
+    # ---------------------------
     def add_favorite(self):
         current_url = self.tabs.currentWidget().url().toString()
         current_title = self.tabs.currentWidget().page().title()
@@ -1253,7 +1655,6 @@ class Browser(QMainWindow):
 
     def update_favorites_menu(self):
         actions = self.fav_menu.actions()
-        # Die ersten Einträge: 0=Favorit hinzufügen, 1=Separator, 2=Favoriten verwalten
         while len(actions) > 3:
             self.fav_menu.removeAction(actions[-1])
             actions = self.fav_menu.actions()
@@ -1273,28 +1674,21 @@ class Browser(QMainWindow):
             self.fav_menu.addMenu(submenu)
 
     def delete_favorite_directly(self, fav):
-        reply = QMessageBox.question(
-            self,
-            "Löschen bestätigen",
-            f"Sollen der Favorit '{fav['title']}' gelöscht werden?",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-            QMessageBox.StandardButton.No
-        )
-        if reply == QMessageBox.StandardButton.Yes:
+        if QMessageBox.question(self, "Löschen", f"Favorit '{fav['title']}' löschen?",
+                                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                                QMessageBox.StandardButton.No) == QMessageBox.StandardButton.Yes:
             self.data["favorites"] = [x for x in self.data["favorites"] if x != fav]
             self.save_data()
             self.update_favorites_menu()
-            QMessageBox.information(self, "Erfolg", f"Favorit '{fav['title']}' gelöscht.")
 
     def navigate_to_favorite(self):
         action = self.sender()
         if action:
-            url = action.data()
-            self.tabs.currentWidget().setUrl(QUrl(url))
+            self.navigate_to_url_string(action.data())
 
     def manage_favorites(self):
         if not self.data["favorites"]:
-            QMessageBox.information(self, "Info", "Keine gespeicherten Favoriten vorhanden.")
+            QMessageBox.information(self, "Info", "Keine Favoriten vorhanden.")
             return
         dlg = FavoritesManagerDialog(self, favorites_list=self.data["favorites"])
         if dlg.exec() == QDialog.DialogCode.Accepted:
@@ -1302,7 +1696,9 @@ class Browser(QMainWindow):
             self.save_data()
             self.update_favorites_menu()
 
-    # ---- Passwörter ----
+    # ---------------------------
+    # Passwörter
+    # ---------------------------
     def save_credentials_for_current_page(self):
         current_url = self.tabs.currentWidget().url().toString()
         domain = QUrl(current_url).host()
@@ -1318,44 +1714,43 @@ class Browser(QMainWindow):
 
     def view_credentials(self):
         if not self.data["credentials"]:
-            QMessageBox.information(self, "Info", "Keine gespeicherten Zugangsdaten vorhanden.")
+            QMessageBox.information(self, "Info", "Keine Zugangsdaten vorhanden.")
             return
         creds_text = ""
         for domain, creds in sorted(self.data["credentials"].items()):
-            creds_text += (
-                f"Domain: {domain}\n"
-                f"Benutzername: {creds['username']}\n"
-                f"Passwort: {creds['password']}\n\n"
-            )
-        creds_dialog = QDialog(self)
-        creds_dialog.setWindowTitle("Gespeicherte Zugangsdaten")
-        creds_dialog.resize(400, 300)
-        layout = QVBoxLayout()
-        creds_label = QLabel(creds_text)
-        creds_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
-        layout.addWidget(creds_label)
+            creds_text += f"Domain: {domain}\nBenutzername: {creds['username']}\nPasswort: {creds['password']}\n\n"
+
+        dlg = QDialog(self)
+        dlg.setWindowTitle("Gespeicherte Zugangsdaten")
+        dlg.resize(520, 360)
+        layout = QVBoxLayout(dlg)
+        label = QLabel(creds_text)
+        label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        layout.addWidget(label)
         close_btn = QPushButton("Schließen")
-        close_btn.clicked.connect(creds_dialog.accept)
+        close_btn.clicked.connect(dlg.accept)
         layout.addWidget(close_btn)
-        creds_dialog.setLayout(layout)
-        creds_dialog.exec()
+        dlg.exec()
 
     def manage_credentials(self):
         if not self.data["credentials"]:
-            QMessageBox.information(self, "Info", "Keine gespeicherten Zugangsdaten vorhanden.")
+            QMessageBox.information(self, "Info", "Keine Zugangsdaten vorhanden.")
             return
         dlg = CredentialsManagerDialog(self, credentials_dict=self.data["credentials"])
         if dlg.exec() == QDialog.DialogCode.Accepted:
             self.data["credentials"] = dlg.credentials
             self.save_data()
 
-    # ---- Chronik ----
+    # ---------------------------
+    # Chronik
+    # ---------------------------
     def view_history(self):
-        history_list = self.data.get("history", [])
-        dlg = HistoryDialog(self, history_list=history_list)
+        dlg = HistoryDialog(self, history_list=self.data.get("history", []))
         dlg.exec()
 
-    # ---- Credential Checking ----
+    # ---------------------------
+    # Credential Autofill
+    # ---------------------------
     def get_credentials_for_url(self, url):
         domain = QUrl(url).host()
         return self.data["credentials"].get(domain, None)
@@ -1365,210 +1760,43 @@ class Browser(QMainWindow):
         credentials = self.get_credentials_for_url(url)
         if not credentials:
             return
+
         js_code = """
         (function() {
             var inputs = document.getElementsByTagName('input');
-            var hasPasswordField = false;
             for(var i=0; i<inputs.length; i++) {
-                if(inputs[i].type.toLowerCase() === 'password') {
-                    hasPasswordField = true;
-                    break;
-                }
+                if(inputs[i].type && inputs[i].type.toLowerCase() === 'password') return true;
             }
-            return hasPasswordField;
+            return false;
         })();
         """
-        browser.page().runJavaScript(
-            js_code, lambda result: self.handle_check_password_field(result, credentials, browser)
-        )
+        browser.page().runJavaScript(js_code, lambda result: self._handle_password_field(result, credentials, browser))
 
-    def handle_check_password_field(self, has_password_field, credentials, browser):
+    def _handle_password_field(self, has_password_field, credentials, browser):
         if not has_password_field:
             return
-        reply = QMessageBox.question(
-            self,
-            "Zugangsdaten verfügbar",
-            "Zugangsdaten für diese Domain sind gespeichert. Möchten Sie diese einfügen?",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-            QMessageBox.StandardButton.No
-        )
-        if reply == QMessageBox.StandardButton.Yes:
+        if QMessageBox.question(self, "Zugangsdaten verfügbar", "Einfügen?",
+                                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                                QMessageBox.StandardButton.No) == QMessageBox.StandardButton.Yes:
             username = credentials['username'].replace('"', '\\"')
             password = credentials['password'].replace('"', '\\"')
             js_code = f"""
             (function() {{
                 var inputs = document.getElementsByTagName('input');
                 for(var i=0; i<inputs.length; i++) {{
-                    if(inputs[i].type.toLowerCase() === 'text' || inputs[i].type.toLowerCase() === 'email') {{
-                        inputs[i].value = "{username}";
-                    }} else if(inputs[i].type.toLowerCase() === 'password') {{
-                        inputs[i].value = "{password}";
-                    }}
+                    var t = (inputs[i].type || "").toLowerCase();
+                    if(t === 'text' || t === 'email') inputs[i].value = "{username}";
+                    if(t === 'password') inputs[i].value = "{password}";
                 }}
             }})();
             """
             browser.page().runJavaScript(js_code)
-            QMessageBox.information(self, "Info", "Zugangsdaten wurden eingefügt.")
 
-    # ---- Video/Media-Handling via yt_dlp ----
-    def download_video_url(self, url):
-        ydl_opts = {
-            'quiet': True,
-            'no_warnings': True,
-            'skip_download': True,
-        }
-        try:
-            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                info = ydl.extract_info(url, download=False)
-                ext = info.get('ext', 'mp4')
-                title = info.get('title', 'downloaded_video')
-                title = re.sub(r'[\\/*?:"<>|]', "", title)
-                default_filename = f"{title}.{ext}"
-        except Exception as e:
-            QMessageBox.warning(self, "Download-Fehler", f"Fehler beim Abrufen der Videoinformationen:\n{e}")
-            return
-
-        save_path, _ = QFileDialog.getSaveFileName(
-            self,
-            "Video speichern unter",
-            default_filename,
-            f"Video Dateien (*.{ext});;Alle Dateien (*)"
-        )
-        if not save_path:
-            return
-
-        download_info = {
-            "filename": os.path.basename(save_path),
-            "target_path": save_path,
-            "progress_percent": 0,
-            "status": "Wartet",
-            "timer": None,
-            "worker": None,
-            "thread": None
-        }
-        self.all_downloads_info.append(download_info)
-        self.active_downloads_info.append(download_info)
-
-        if self.download_manager_dialog and self.download_manager_dialog.isVisible():
-            self.download_manager_dialog.refresh_table()
-
-        thread = QThread()
-        worker = DownloadWorker(url, save_path)
-        worker.moveToThread(thread)
-
-        thread.started.connect(worker.run)
-        worker.progress.connect(lambda p: self.update_download_progress(download_info, p))
-        worker.status.connect(lambda s: self.update_download_status(download_info, s))
-        worker.error.connect(lambda e: self.handle_download_error(download_info, e))
-        worker.finished.connect(thread.quit)
-        worker.finished.connect(worker.deleteLater)
-        worker.finished.connect(lambda: self.on_download_finished(download_info))
-        thread.finished.connect(thread.deleteLater)
-
-        thread.start()
-
-        download_info["worker"] = worker
-        download_info["thread"] = thread
-
-        self.download_progress_bar.setVisible(True)
-        self.status.showMessage(f"Download gestartet: {download_info['filename']}")
-
-    def update_download_progress(self, download_info, percent):
-        download_info["progress_percent"] = percent
-        self.download_progress_bar.setValue(percent)
-        self.download_progress_bar.setVisible(True)
-        print(f"Download Fortschritt: {percent}% - {download_info['filename']}")
-        if self.download_manager_dialog and self.download_manager_dialog.isVisible():
-            self.download_manager_dialog.refresh_table()
-
-    def update_download_status(self, download_info, status):
-        download_info["status"] = status
-        self.status.showMessage(f"Download Status: {status} - {download_info['target_path']}")
-        if self.download_manager_dialog and self.download_manager_dialog.isVisible():
-            self.download_manager_dialog.refresh_table()
-
-    def handle_download_error(self, download_info, error_message):
-        QMessageBox.warning(self, "Download-Fehler", f"Fehler beim Herunterladen von {download_info['filename']}:\n{error_message}")
-
-    def on_download_finished(self, download_info):
-        if download_info["status"] == "Fertig":
-            self.status.showMessage(f"Download abgeschlossen: {download_info['target_path']}")
-        elif download_info["status"] == "Abgebrochen":
-            self.status.showMessage(f"Download abgebrochen: {download_info['target_path']}")
-        elif download_info["status"] == "Fehlgeschlagen":
-            self.status.showMessage(f"Download fehlgeschlagen: {download_info['target_path']}")
-
-        if download_info in self.active_downloads_info:
-            self.active_downloads_info.remove(download_info)
-
-        if not self.active_downloads_info:
-            self.download_progress_bar.setVisible(False)
-            self.status.clearMessage()
-        else:
-            max_progress = max(dl["progress_percent"] for dl in self.active_downloads_info)
-            self.download_progress_bar.setValue(max_progress)
-
-        if self.download_manager_dialog and self.download_manager_dialog.isVisible():
-            self.download_manager_dialog.refresh_table()
-
-    def cancel_download(self, download_info):
-        if download_info["status"] in ["Läuft", "Wartet"]:
-            if "worker" in download_info and download_info["worker"]:
-                worker = download_info["worker"]
-                worker.cancel()
-                print(f"Download abgebrochen: {download_info['filename']}")
-            elif "download_obj" in download_info and download_info["download_obj"]:
-                download_obj = download_info["download_obj"]
-                download_obj.cancel()
-                print(f"Download abgebrochen: {download_info['filename']}")
-        elif download_info["status"] == "Wartet":
-            if download_info in self.active_downloads_info:
-                self.active_downloads_info.remove(download_info)
-            print(f"Download entfernt: {download_info['filename']}")
-
-        if not self.active_downloads_info:
-            self.download_progress_bar.setVisible(False)
-            self.status.clearMessage()
-        else:
-            max_progress = max(dl["progress_percent"] for dl in self.active_downloads_info)
-            self.download_progress_bar.setValue(max_progress)
-
-        if self.download_manager_dialog and self.download_manager_dialog.isVisible():
-            self.download_manager_dialog.refresh_table()
-
-    def delete_download(self, download_info):
-        if download_info["status"] in ["Läuft", "Wartet"]:
-            if "worker" in download_info and download_info["worker"]:
-                worker = download_info["worker"]
-                worker.cancel()
-                print(f"Download abgebrochen und gelöscht: {download_info['filename']}")
-            elif "download_obj" in download_info and download_info["download_obj"]:
-                download_obj = download_info["download_obj"]
-                download_obj.cancel()
-                print(f"Download abgebrochen und gelöscht: {download_info['filename']}")
-
-        if download_info in self.active_downloads_info:
-            self.active_downloads_info.remove(download_info)
-        if download_info in self.all_downloads_info:
-            self.all_downloads_info.remove(download_info)
-        print(f"Download gelöscht: {download_info['filename']}")
-
-        if not self.active_downloads_info:
-            self.download_progress_bar.setVisible(False)
-            self.status.clearMessage()
-        else:
-            max_progress = max(dl["progress_percent"] for dl in self.active_downloads_info)
-            self.download_progress_bar.setValue(max_progress)
-
-        if self.download_manager_dialog and self.download_manager_dialog.isVisible():
-            self.download_manager_dialog.refresh_table()
-
+    # ---------------------------
+    # Video scan/play
+    # ---------------------------
     def handle_youtube_via_yt_dlp(self, youtube_url):
-        ydl_opts = {
-            'quiet': True,
-            'no_warnings': True,
-            'format': 'best'
-        }
+        ydl_opts = {'quiet': True, 'no_warnings': True, 'format': 'best'}
         try:
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 info = ydl.extract_info(youtube_url, download=False)
@@ -1586,7 +1814,7 @@ class Browser(QMainWindow):
                         variant_list.append((label, direct_url))
 
                 if not variant_list:
-                    QMessageBox.warning(self, "Fehler", "Keine abspielbaren Direct-URLs gefunden.")
+                    QMessageBox.warning(self, "Fehler", "Keine Direct-URLs gefunden.")
                     return
 
                 if len(variant_list) == 1:
@@ -1595,77 +1823,142 @@ class Browser(QMainWindow):
 
                 dlg = QDialog(self)
                 dlg.setWindowTitle("Stream auswählen")
-                dlg.resize(400, 300)
+                dlg.resize(560, 420)
                 layout = QVBoxLayout(dlg)
-
-                info_label = QLabel(f"Formate für: {info.get('title', youtube_url)}")
-                layout.addWidget(info_label)
+                layout.addWidget(QLabel(f"Formate für: {info.get('title', youtube_url)}"))
 
                 list_widget = QListWidget()
-                for label_text, url in variant_list:
+                for label_text, u in variant_list:
                     item = QListWidgetItem(label_text)
-                    item.setData(Qt.ItemDataRole.UserRole, url)
+                    item.setData(Qt.ItemDataRole.UserRole, u)
                     list_widget.addItem(item)
                 layout.addWidget(list_widget)
 
-                btn_layout = QHBoxLayout()
+                btns = QHBoxLayout()
                 ok_btn = QPushButton("Abspielen")
                 cancel_btn = QPushButton("Abbrechen")
-                btn_layout.addWidget(ok_btn)
-                btn_layout.addWidget(cancel_btn)
-                layout.addLayout(btn_layout)
+                btns.addWidget(ok_btn)
+                btns.addWidget(cancel_btn)
+                layout.addLayout(btns)
 
                 def on_ok():
-                    item = list_widget.currentItem()
-                    if item:
-                        chosen_url = item.data(Qt.ItemDataRole.UserRole)
-                        self.play_video_in_vlc(chosen_url)
+                    it = list_widget.currentItem()
+                    if it:
+                        self.play_video_in_vlc(it.data(Qt.ItemDataRole.UserRole))
                     dlg.accept()
 
-                def on_cancel():
-                    dlg.reject()
-
                 ok_btn.clicked.connect(on_ok)
-                cancel_btn.clicked.connect(on_cancel)
-
+                cancel_btn.clicked.connect(dlg.reject)
                 dlg.exec()
 
         except Exception as e:
-            QMessageBox.warning(self, "YouTube-Fehler", f"Fehler beim Abrufen der Streams:\n{e}")
+            QMessageBox.warning(self, "yt-dlp Fehler", f"Fehler:\n{e}")
 
     def scan_and_play_videos(self):
         current_url = self.tabs.currentWidget().url().toString()
         self.handle_youtube_via_yt_dlp(current_url)
 
     def play_video_in_vlc(self, video_url):
-        dlg = VLCPlayerDialog(video_url, self)
-        dlg.exec()
+        VLCPlayerDialog(video_url, self).exec()
 
+    # ---------------------------
+    # WHOIS
+    # ---------------------------
     def show_whois_info(self):
         current_url = self.tabs.currentWidget().url().toString()
         domain = QUrl(current_url).host()
         if not domain:
             QMessageBox.warning(self, "Fehler", "Keine gültige Domain gefunden.")
             return
-
         try:
             whois_info = whois.whois(domain)
             whois_str = ""
             for key, value in whois_info.items():
                 whois_str += f"{key}: {value}\n"
-
             ip = socket.gethostbyname(domain)
             ip_info = f"IP-Adresse: {ip}"
-
-            dlg = WhoisDialog(whois_str, ip_info, self)
-            dlg.exec()
-
+            WhoisDialog(whois_str, ip_info, self).exec()
         except Exception as e:
-            QMessageBox.warning(self, "Fehler", f"Fehler beim Abrufen der WHOIS-Informationen:\n{e}")
+            QMessageBox.warning(self, "Fehler", f"WHOIS Fehler:\n{e}")
+
+    # ---------------------------
+    # Plugins
+    # ---------------------------
+    def load_plugins(self):
+        for plugin_info in self.data["plugins"]:
+            path = plugin_info["path"]
+            try:
+                spec = importlib.util.spec_from_file_location("temp_plugin", path)
+                plugin_module = importlib.util.module_from_spec(spec)
+                spec.loader.exec_module(plugin_module)
+                if hasattr(plugin_module, "initialize_plugin"):
+                    plugin_module.initialize_plugin(self)
+                self.loaded_plugin_modules[path] = plugin_module
+            except Exception as e:
+                print(f"Fehler beim Laden des Plugins '{path}': {e}")
+
+    def add_plugin(self):
+        file_path, _ = QFileDialog.getOpenFileName(self, "Plugin hinzufügen", "", "Python-Dateien (*.py);;Alle Dateien (*)")
+        if not file_path:
+            return
+        self.data["plugins"].append({"path": file_path})
+        self.save_data()
+        QMessageBox.information(self, "Neustart", "Plugin hinzugefügt. App wird neu gestartet.")
+        self.restart_application()
+
+    def manage_plugins(self):
+        old = self.data["plugins"][:]
+        dlg = PluginManagerDialog(self, plugins_list=self.data["plugins"])
+        if dlg.exec() == QDialog.DialogCode.Accepted:
+            self.data["plugins"] = dlg.plugins
+            self.save_data()
+            if self.data["plugins"] != old:
+                QMessageBox.information(self, "Neustart", "Plugin-Liste geändert. Neustart.")
+                self.restart_application()
+
+    def restart_application(self):
+        python = sys.executable
+        os.execl(python, python, *sys.argv)
+
+    # ---------------------------
+    # Data
+    # ---------------------------
+    def load_data(self):
+        if os.path.exists(DATA_FILE):
+            try:
+                with open(DATA_FILE, 'r', encoding='utf-8') as f:
+                    self.data = json.load(f)
+            except json.JSONDecodeError:
+                QMessageBox.warning(self, "Fehler", f"Die Datei {DATA_FILE} ist beschädigt.")
+                self.data = {"favorites": [], "credentials": {}, "history": [], "plugins": [], "adblock_enabled": True}
+        else:
+            self.data = {"favorites": [], "credentials": {}, "history": [], "plugins": [], "adblock_enabled": True}
+
+    def save_data(self):
+        try:
+            with open(DATA_FILE, 'w', encoding='utf-8') as f:
+                json.dump(self.make_serializable(self.data), f, indent=4, ensure_ascii=False)
+        except Exception as e:
+            QMessageBox.critical(self, "Fehler", f"Beim Speichern der Daten ist ein Fehler aufgetreten:\n{e}")
+
+    def make_serializable(self, obj):
+        if isinstance(obj, dict):
+            return {k: self.make_serializable(v) for k, v in obj.items()}
+        if isinstance(obj, list):
+            return [self.make_serializable(x) for x in obj]
+        if isinstance(obj, datetime):
+            return obj.strftime('%Y-%m-%d %H:%M:%S')
+        return obj
+
+    def add_to_history(self, title, url):
+        self.data["history"].append({"title": title or "Ohne Titel", "url": url})
+        self.save_data()
 
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
+    app.setStyleSheet(EPIC_QSS)
+
     window = Browser()
     window.show()
     sys.exit(app.exec())
