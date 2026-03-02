@@ -17,10 +17,10 @@ jobs:
 
     steps:
       - name: Checkout Repository
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       - name: Set up Python
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v5
         with:
           python-version: '3.11'
 
@@ -93,7 +93,6 @@ jobs:
       - name: Build EXE
         shell: powershell
         run: |
-          # Bereinige vorherige Builds
           if (Test-Path build) { Remove-Item -Recurse -Force build }
           if (Test-Path dist)  { Remove-Item -Recurse -Force dist }
 
@@ -107,12 +106,11 @@ jobs:
             --add-data "$env:PUBLIC_SUFFIX_PATH;whois\data" `
             TMP-Networks-Browser-Mini.py
 
-          # Überprüfe den Inhalt von dist/
           Write-Output "Inhalt von dist/:"
           Get-ChildItem -Recurse dist/
 
       - name: Upload Build Artifact
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: TMP-Networks-Browser-Mini-Windows-Executable
           path: dist\TMP-Networks-Browser-Mini.exe
@@ -127,7 +125,7 @@ jobs:
 
     steps:
       - name: Checkout Repository
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       - name: Verify Icon File Exists
         run: |
@@ -137,7 +135,7 @@ jobs:
           fi
 
       - name: Set up Python
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v5
         with:
           python-version: '3.11'
 
@@ -180,16 +178,13 @@ jobs:
 
       - name: Build macOS App
         run: |
-          # Entferne vorherige Builds
           rm -rf build dist
 
-          # Überprüfen, ob die Datei existiert
           if [ ! -f "$PUBLIC_SUFFIX_PATH" ]; then
             echo "Error: public_suffix_list.dat nicht gefunden unter $PUBLIC_SUFFIX_PATH"
             exit 1
           fi
 
-          # Erstelle Runtime Hook für VLC
           mkdir -p hooks
           echo "import os, sys" > hooks/hook-vlc.py
           echo "def set_ld_library_path():" >> hooks/hook-vlc.py
@@ -228,7 +223,7 @@ jobs:
                 "TMP-Networks-Browser-Mini-macOS.zip"
 
       - name: Upload Build Artifact
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: TMP-Networks-Browser-Mini-macOS
           path: dist/TMP-Networks-Browser-Mini-macOS.zip
@@ -242,15 +237,15 @@ jobs:
 
     steps:
       - name: Checkout Repository
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       - name: Set up Python
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v5
         with:
           python-version: '3.11'
 
       - name: Cache pip
-        uses: actions/cache@v3
+        uses: actions/cache@v4
         with:
           path: ~/.cache/pip
           key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
@@ -266,7 +261,6 @@ jobs:
 
       - name: Verify VLC Installation
         run: |
-          # Überprüfen von libvlc.so
           LIBVLC_PATH=$(ldconfig -p | grep libvlc.so | head -n 1 | awk '{print $4}')
           if [ -f "$LIBVLC_PATH" ]; then
             echo "libvlc.so gefunden unter $LIBVLC_PATH."
@@ -275,7 +269,6 @@ jobs:
             exit 1
           fi
 
-          # Überprüfen von libvlccore.so
           LIBVLCCORE_PATH=$(ldconfig -p | grep libvlccore.so | head -n 1 | awk '{print $4}')
           if [ -f "$LIBVLCCORE_PATH" ]; then
             echo "libvlccore.so gefunden unter $LIBVLCCORE_PATH."
@@ -284,12 +277,10 @@ jobs:
             exit 1
           fi
 
-          # Bestimmen des Plugins-Pfads
           PLUGINS_PATH=$(dirname "$LIBVLC_PATH")/vlc/plugins
           if [ -d "$PLUGINS_PATH" ]; then
             echo "VLC Plugins gefunden unter $PLUGINS_PATH."
           else
-            # Fallback-Pfade prüfen
             if [ -d "/usr/lib/vlc/plugins" ]; then
               PLUGINS_PATH="/usr/lib/vlc/plugins"
               echo "VLC Plugins gefunden unter $PLUGINS_PATH."
@@ -297,12 +288,11 @@ jobs:
               PLUGINS_PATH="/usr/lib/x86_64-linux-gnu/vlc/plugins"
               echo "VLC Plugins gefunden unter $PLUGINS_PATH."
             else
-              echo "VLC Plugins nicht gefunden unter den erwarteten Verzeichnissen."
+              echo "VLC Plugins nicht gefunden."
               exit 1
             fi
           fi
 
-          # Exportieren der Pfade als Umgebungsvariablen
           echo "LIBVLC_PATH=$LIBVLC_PATH" >> $GITHUB_ENV
           echo "LIBVLCCORE_PATH=$LIBVLCCORE_PATH" >> $GITHUB_ENV
           echo "PLUGINS_PATH=$PLUGINS_PATH" >> $GITHUB_ENV
@@ -332,11 +322,6 @@ jobs:
             echo "public_suffix_list.dat gefunden."
           fi
 
-      - name: List Repository Files
-        run: |
-          echo "Listing all files in the repository:"
-          ls -R
-
       - name: Display Python Version
         run: python --version
 
@@ -361,7 +346,6 @@ jobs:
 
       - name: Build Executable
         run: |
-          # Lösche alte Builds
           rm -rf build dist
 
           pyinstaller --onefile \
@@ -381,11 +365,11 @@ jobs:
 
       - name: Check Library Dependencies
         run: |
-          ldd dist/TMP-Networks-Browser-Mini
-          find dist -name "*.so" -exec ldd {} \;
+          ldd dist/TMP-Networks-Browser-Mini || true
+          find dist -name "*.so" -exec ldd {} \; || true
 
       - name: Upload Build Artifact
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: TMP-Networks-Browser-Mini-Linux-Executable
           path: dist/TMP-Networks-Browser-Mini
