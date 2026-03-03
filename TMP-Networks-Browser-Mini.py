@@ -1,32 +1,53 @@
 #!/usr/bin/env python3
 # TMP-Networks-Browser-Mini.py
 #
-# Features:
-# - Popups öffnen als Tab (URL-Bar wird korrekt aktualisiert)
-# - Echte Adressleisten-Suche (kein URL-Format -> Google Suche)
-# - Favicons pro Tab
-# - Animierte Lade-"Glow"-Leiste (Statusbar)
-# - Download-Queue (max. parallele yt-dlp Downloads)
-# - Reader Mode (vereinfachte Lesansicht)
-# - Werbeblocker-Basis via Request-Interceptor (QWebEngineUrlRequestInterceptor)
+# NEU (Instagram/yt-dlp):
+# - Exportiert Cookies für yt-dlp aus dem QtWebEngine Profil:
+#  1) bevorzugt aus Chromium Cookie DB (persistenter Store)
+#   2) fallback: aus QWebEngineCookieStore Events
+# - Übergibt an yt-dlp:
+#   - cookiefile
+#   - user_agent (aus QWebEngineProfile)
+#   - http_headers (Accept-Language, Referer)
+#
+# Hinweis: Instagram Stories sind sehr restriktiv. Oft braucht yt-dlp eine konkrete Story-URL (mit ID).
 
-import sys
-import json
 import os
+import sys
+
+# ---------------------------------------------------------
+# MUSS vor allen QtWebEngine-Imports passieren (macOS .app)
+# ---------------------------------------------------------
+def _early_disable_proxy_for_qtwebengine():
+    for k in (
+        "http_proxy", "https_proxy", "all_proxy", "no_proxy",
+        "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY"
+    ):
+        os.environ.pop(k, None)
+
+    extra = "--no-proxy-server --proxy-auto-detect=false"
+    existing = os.environ.get("QTWEBENGINE_CHROMIUM_FLAGS", "").strip()
+    os.environ["QTWEBENGINE_CHROMIUM_FLAGS"] = (existing + " " + extra).strip() if existing else extra
+
+_early_disable_proxy_for_qtwebengine()
+
+import json
 import re
 import socket
-import whois
+import sqlite3
+import shutil
+import time
 from datetime import datetime
 from functools import partial
 import importlib.util
 from collections import deque
+from urllib.parse import quote_plus
 
+import whois
 import vlc
 import yt_dlp
 
-from urllib.parse import quote_plus
-
-# PyQt6
+from PyQt6.QtNetwork import QNetworkProxy, QNetworkProxyFactory, QNetworkCookie
 from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QVBoxLayout, QLineEdit, QWidget,
     QTabWidget, QToolBar, QStatusBar, QFileDialog, QMessageBox,
@@ -35,16 +56,13 @@ from PyQt6.QtWidgets import (
     QTableWidgetItem, QHeaderView, QProgressBar
 )
 from PyQt6.QtGui import QAction, QFont, QDesktopServices, QIcon
-from PyQt6.QtCore import QUrl, QSize, Qt, QTimer, QThread, QByteArray
+from PyQt6.QtCore import QUrl, QSize, Qt, QTimer, QThread
 from PyQt6.QtWebEngineWidgets import QWebEngineView
 from PyQt6.QtWebEngineCore import (
     QWebEnginePage, QWebEngineSettings, QWebEngineDownloadRequest, QWebEngineProfile
 )
-
-# Interceptor
 from PyQt6.QtWebEngineCore import QWebEngineUrlRequestInterceptor
 
-# AppDirs
 from appdirs import AppDirs
 
 
@@ -62,155 +80,57 @@ DATA_FILE = json_path
 # Styling (Epic Dark Theme)
 # ---------------------------
 EPIC_QSS = """
-QMainWindow {
-    background: #0b0f17;
-}
-QMenuBar {
-    background: #0e1420;
-    color: #e7eefc;
-    padding: 6px;
-}
-QMenuBar::item {
-    background: transparent;
-    padding: 6px 10px;
-    border-radius: 8px;
-}
-QMenuBar::item:selected {
-    background: #1a2740;
-}
-QMenu {
-    background: #0e1420;
-    color: #e7eefc;
-    border: 1px solid #22314f;
-    padding: 6px;
-}
-QMenu::item {
-    padding: 8px 14px;
-    border-radius: 8px;
-}
-QMenu::item:selected {
-    background: #1a2740;
-}
+QMainWindow { background: #0b0f17; }
+QMenuBar { background: #0e1420; color: #e7eefc; padding: 6px; }
+QMenuBar::item { background: transparent; padding: 6px 10px; border-radius: 8px; }
+QMenuBar::item:selected { background: #1a2740; }
+QMenu { background: #0e1420; color: #e7eefc; border: 1px solid #22314f; padding: 6px; }
+QMenu::item { padding: 8px 14px; border-radius: 8px; }
+QMenu::item:selected { background: #1a2740; }
 
-QToolBar {
-    background: #0e1420;
-    border: none;
-    spacing: 8px;
-    padding: 8px;
-}
-QToolButton {
-    background: #121b2b;
-    color: #e7eefc;
-    border: 1px solid #22314f;
-    padding: 8px 10px;
-    border-radius: 10px;
-}
-QToolButton:hover {
-    background: #17223a;
-    border: 1px solid #2f4675;
-}
-QToolButton:pressed {
-    background: #0f1728;
-}
+QToolBar { background: #0e1420; border: none; spacing: 8px; padding: 8px; }
+QToolButton { background: #121b2b; color: #e7eefc; border: 1px solid #22314f; padding: 8px 10px; border-radius: 10px; }
+QToolButton:hover { background: #17223a; border: 1px solid #2f4675; }
+QToolButton:pressed { background: #0f1728; }
 
 QLineEdit {
-    background: #0b1220;
-    color: #e7eefc;
-    border: 1px solid #22314f;
-    border-radius: 12px;
-    padding: 10px 12px;
-    selection-background-color: #2f6cff;
+    background: #0b1220; color: #e7eefc;
+    border: 1px solid #22314f; border-radius: 12px;
+    padding: 10px 12px; selection-background-color: #2f6cff;
 }
-QLineEdit:focus {
-    border: 1px solid #2f6cff;
-}
+QLineEdit:focus { border: 1px solid #2f6cff; }
 
-QTabWidget::pane {
-    border: 1px solid #22314f;
-    top: -1px;
-    background: #0b0f17;
-}
+QTabWidget::pane { border: 1px solid #22314f; top: -1px; background: #0b0f17; }
 QTabBar::tab {
-    background: #0e1420;
-    color: #cfe0ff;
+    background: #0e1420; color: #cfe0ff;
     border: 1px solid #22314f;
-    padding: 10px 14px;
-    margin-right: 6px;
-    border-top-left-radius: 12px;
-    border-top-right-radius: 12px;
+    padding: 10px 14px; margin-right: 6px;
+    border-top-left-radius: 12px; border-top-right-radius: 12px;
 }
-QTabBar::tab:selected {
-    background: #121b2b;
-    color: #ffffff;
-    border: 1px solid #2f4675;
-}
-QTabBar::tab:hover {
-    background: #17223a;
-}
+QTabBar::tab:selected { background: #121b2b; color: #ffffff; border: 1px solid #2f4675; }
+QTabBar::tab:hover { background: #17223a; }
 
-QStatusBar {
-    background: #0e1420;
-    color: #cfe0ff;
-    border-top: 1px solid #22314f;
-}
+QStatusBar { background: #0e1420; color: #cfe0ff; border-top: 1px solid #22314f; }
 QProgressBar {
-    border: 1px solid #22314f;
-    border-radius: 8px;
-    text-align: center;
-    color: #e7eefc;
-    background: #0b1220;
+    border: 1px solid #22314f; border-radius: 8px;
+    text-align: center; color: #e7eefc; background: #0b1220;
 }
-QProgressBar::chunk {
-    border-radius: 8px;
-    background-color: #2f6cff;
-}
+QProgressBar::chunk { border-radius: 8px; background-color: #2f6cff; }
 
-QDialog {
-    background: #0b0f17;
-    color: #e7eefc;
-}
-QLabel {
-    color: #e7eefc;
-}
+QDialog { background: #0b0f17; color: #e7eefc; }
+QLabel { color: #e7eefc; }
 QPushButton {
-    background: #121b2b;
-    color: #e7eefc;
-    border: 1px solid #22314f;
-    padding: 10px 12px;
-    border-radius: 10px;
+    background: #121b2b; color: #e7eefc;
+    border: 1px solid #22314f; padding: 10px 12px; border-radius: 10px;
 }
-QPushButton:hover {
-    background: #17223a;
-    border: 1px solid #2f4675;
-}
-QPushButton:pressed {
-    background: #0f1728;
-}
+QPushButton:hover { background: #17223a; border: 1px solid #2f4675; }
+QPushButton:pressed { background: #0f1728; }
 
-QTableWidget {
-    background: #0b1220;
-    color: #e7eefc;
-    border: 1px solid #22314f;
-    gridline-color: #22314f;
-}
-QHeaderView::section {
-    background: #0e1420;
-    color: #cfe0ff;
-    padding: 8px;
-    border: 1px solid #22314f;
-}
-QListWidget {
-    background: #0b1220;
-    color: #e7eefc;
-    border: 1px solid #22314f;
-}
-QListWidget::item {
-    padding: 10px;
-    border-radius: 10px;
-}
-QListWidget::item:selected {
-    background: #1a2740;
-}
+QTableWidget { background: #0b1220; color: #e7eefc; border: 1px solid #22314f; gridline-color: #22314f; }
+QHeaderView::section { background: #0e1420; color: #cfe0ff; padding: 8px; border: 1px solid #22314f; }
+QListWidget { background: #0b1220; color: #e7eefc; border: 1px solid #22314f; }
+QListWidget::item { padding: 10px; border-radius: 10px; }
+QListWidget::item:selected { background: #1a2740; }
 """
 
 
@@ -219,12 +139,6 @@ def get_emoji_font():
 
 
 def looks_like_url(text: str) -> bool:
-    """
-    Heuristik:
-    - enthält Schema (http/https) -> URL
-    - enthält einen Punkt und keine Leerzeichen -> wahrscheinlich Domain
-    - localhost / IP -> URL
-    """
     t = text.strip()
     if not t:
         return False
@@ -236,7 +150,6 @@ def looks_like_url(text: str) -> bool:
         return True
     if re.match(r'^\d{1,3}(\.\d{1,3}){3}(:\d+)?(/.*)?$', t):
         return True
-    # domain.tld oder sub.domain.tld
     if "." in t and not t.startswith(".") and not t.endswith("."):
         return True
     return False
@@ -255,18 +168,225 @@ def google_search_url(query: str) -> QUrl:
 
 
 # ---------------------------
+# Cookie Export (Fallback): QWebEngineCookieStore -> cookies.txt
+# ---------------------------
+class WebEngineCookieStoreJar:
+    """
+    Fallback: sammelt Cookies aus cookieStore() Events und schreibt Netscape cookies.txt.
+    Das kann bei Instagram unvollständig sein, ist aber besser als nichts.
+    """
+    def __init__(self, profile: QWebEngineProfile, cookie_txt_path: str, parent=None):
+        self.profile = profile
+        self.cookie_txt_path = cookie_txt_path
+        self.cookies = {}  # (domain, path, name) -> dict
+
+        store = self.profile.cookieStore()
+        store.cookieAdded.connect(self._on_cookie_added)
+        store.cookieRemoved.connect(self._on_cookie_removed)
+        store.loadAllCookies()
+
+        self._save_timer = QTimer(parent)
+        self._save_timer.setSingleShot(True)
+        self._save_timer.timeout.connect(self.save_to_netscape)
+
+    def _cookie_key(self, c: QNetworkCookie):
+        name = bytes(c.name()).decode("utf-8", "ignore")
+        domain = c.domain()
+        path = c.path() or "/"
+        return (domain, path, name)
+
+    def _on_cookie_added(self, c: QNetworkCookie):
+        key = self._cookie_key(c)
+        name = bytes(c.name()).decode("utf-8", "ignore")
+        value = bytes(c.value()).decode("utf-8", "ignore")
+
+        exp = c.expirationDate()
+        expires = int(exp.toSecsSinceEpoch()) if exp.isValid() else 0
+
+        domain = (c.domain() or "").strip()
+        path = c.path() or "/"
+        secure = bool(c.isSecure())
+
+        self.cookies[key] = {
+            "domain": domain,
+            "include_subdomains": True,
+            "path": path,
+            "secure": secure,
+            "expires": expires,
+            "name": name,
+            "value": value,
+        }
+        self._save_timer.start(700)
+
+    def _on_cookie_removed(self, c: QNetworkCookie):
+        key = self._cookie_key(c)
+        if key in self.cookies:
+            del self.cookies[key]
+        self._save_timer.start(700)
+
+    def save_to_netscape(self):
+        try:
+            os.makedirs(os.path.dirname(self.cookie_txt_path), exist_ok=True)
+            with open(self.cookie_txt_path, "w", encoding="utf-8") as f:
+                f.write("# Netscape HTTP Cookie File\n")
+                f.write("# Generated by TMP-Networks-Browser-Mini (QtWebEngine cookieStore)\n\n")
+                for _, c in self.cookies.items():
+                    domain = c["domain"]
+                    if not domain:
+                        continue
+                    if not domain.startswith("."):
+                        domain = "." + domain
+                    include_sub = "TRUE" if c["include_subdomains"] else "FALSE"
+                    path = c["path"] or "/"
+                    secure = "TRUE" if c["secure"] else "FALSE"
+                    expires = str(c["expires"])
+                    f.write(f"{domain}\t{include_sub}\t{path}\t{secure}\t{expires}\t{c['name']}\t{c['value']}\n")
+        except Exception as e:
+            print(f"[CookieStoreJar] Fehler: {e}")
+
+
+# ---------------------------
+# Cookie Export (Preferred): Chromium Cookie DB -> cookies.txt
+# ---------------------------
+class ChromiumCookieDBExporter:
+    """
+    Liest Cookies aus QtWebEngine persistent storage (Chromium Cookie DB) und
+    exportiert sie als Netscape cookies.txt für yt-dlp.
+
+    Das ist i.d.R. näher an "echten Browser Cookies" als cookieStore Events.
+    """
+    def __init__(self, profile: QWebEngineProfile, cookie_txt_path: str, parent=None):
+        self.profile = profile
+        self.cookie_txt_path = cookie_txt_path
+        self._timer = QTimer(parent)
+        self._timer.setInterval(4000)  # alle 4 Sekunden aktualisieren (leichtgewichtig)
+        self._timer.timeout.connect(self.export_now)
+        self._timer.start()
+
+    def _possible_cookie_db_paths(self) -> list[str]:
+        base = self.profile.persistentStoragePath()
+        # QtWebEngine legt je nach Version/OS unterschiedliche Strukturen an.
+        candidates = [
+            os.path.join(base, "Default", "Cookies"),
+            os.path.join(base, "Cookies"),
+            os.path.join(base, "Profile 1", "Cookies"),
+            os.path.join(base, "Network", "Cookies"),
+            os.path.join(base, "Default", "Network", "Cookies"),
+        ]
+        # zusätzlich: alles durchsuchen (nur 1 Ebene tief)
+        try:
+            if os.path.isdir(base):
+                for root, dirs, files in os.walk(base):
+                    if "Cookies" in files:
+                        candidates.append(os.path.join(root, "Cookies"))
+        except Exception:
+            pass
+
+        # unique
+        out = []
+        for p in candidates:
+            if p not in out:
+                out.append(p)
+        return out
+
+    def _find_cookie_db(self) -> str | None:
+        for p in self._possible_cookie_db_paths():
+            if os.path.isfile(p):
+                return p
+        return None
+
+    def export_now(self):
+        db_path = self._find_cookie_db()
+        if not db_path:
+            return
+
+        # Chromium hält DB oft gelockt -> copy to temp
+        tmp_db = os.path.join(os.path.dirname(self.cookie_txt_path), "Cookies.tmp.sqlite")
+        try:
+            shutil.copy2(db_path, tmp_db)
+        except Exception:
+            return
+
+        # Chrome/Chromium cookies schema:
+        # host_key, name, value, path, expires_utc, is_secure, is_httponly, samesite, encrypted_value
+        # value kann leer sein, dann encrypted_value gesetzt (macOS Keychain nötig).
+        # QtWebEngine speichert auf macOS oft ebenfalls encrypted_value.
+        # -> Wir können nur die unencrypted "value" exportieren. Wenn alles encrypted ist,
+        #    geht es ohne Entschlüsselung nicht.
+        #
+        # Trotzdem: häufig sind genug Cookies unencrypted oder yt-dlp kommt mit csrftoken/sessionid klar.
+        try:
+            con = sqlite3.connect(tmp_db)
+            cur = con.cursor()
+
+            # Tabelle heißt meist "cookies"
+            cur.execute("""
+                SELECT host_key, name, value, path, expires_utc, is_secure, is_httponly
+                FROM cookies
+            """)
+            rows = cur.fetchall()
+            con.close()
+        except Exception:
+            try:
+                con.close()
+            except Exception:
+                pass
+            return
+        finally:
+            try:
+                os.remove(tmp_db)
+            except Exception:
+                pass
+
+        # Netscape export
+        try:
+            os.makedirs(os.path.dirname(self.cookie_txt_path), exist_ok=True)
+            with open(self.cookie_txt_path, "w", encoding="utf-8") as f:
+                f.write("# Netscape HTTP Cookie File\n")
+                f.write("# Generated by TMP-Networks-Browser-Mini (QtWebEngine Chromium Cookie DB)\n\n")
+
+                for host_key, name, value, path, expires_utc, is_secure, is_httponly in rows:
+                    if not host_key or not name:
+                        continue
+                    # Wenn value leer ist, ist es evtl. encrypted_value -> können wir hier nicht
+                    if value is None:
+                        continue
+                    value = str(value)
+                    if value == "":
+                        continue
+
+                    domain = host_key.strip()
+                    if not domain.startswith("."):
+                        domain = "." + domain
+
+                    include_sub = "TRUE"
+                    secure = "TRUE" if int(is_secure) == 1 else "FALSE"
+
+                    # expires_utc ist "microseconds since 1601-01-01" (Chrome time)
+                    # convert to unix epoch seconds
+                    try:
+                        exp = int(expires_utc)
+                        if exp <= 0:
+                            expires = "0"
+                        else:
+                            unix = int(exp / 1000000 - 11644473600)
+                            expires = str(max(0, unix))
+                    except Exception:
+                        expires = "0"
+
+                    p = path or "/"
+                    f.write(f"{domain}\t{include_sub}\t{p}\t{secure}\t{expires}\t{name}\t{value}\n")
+        except Exception as e:
+            print(f"[CookieDBExporter] Export Fehler: {e}")
+
+
+# ---------------------------
 # Adblock Interceptor (Basis)
 # ---------------------------
 class AdBlockInterceptor(QWebEngineUrlRequestInterceptor):
-    """
-    Sehr einfache Basis:
-    - blockt bekannte Ad/Tracker Hosts und einige Pfad-Signaturen.
-    - nicht so stark wie uBlock, aber guter Start.
-    """
     def __init__(self, enabled=True, parent=None):
         super().__init__(parent)
         self.enabled = enabled
-
         self.block_hosts = {
             "doubleclick.net", "googlesyndication.com", "google-analytics.com",
             "adsystem.com", "adservice.google.com", "adservice.google.de",
@@ -292,27 +412,17 @@ class AdBlockInterceptor(QWebEngineUrlRequestInterceptor):
         path = url.path().lower()
         full = url.toString().lower()
 
-        # Host-basierter Block
         for h in self.block_hosts:
             if host == h or host.endswith("." + h):
                 info.block(True)
                 return
-
-        # Substring-basierter Block
         for s in self.block_substrings:
             if s in path or s in full:
                 info.block(True)
                 return
 
 
-# ---------------------------
-# Glow Progress Bar
-# ---------------------------
 class GlowProgressBar(QProgressBar):
-    """
-    Fake "Glow": animiert einen hellen Gradient über dem Chunk.
-    Wir machen das über ein dynamisches Stylesheet (leichtgewichtig).
-    """
     def __init__(self, parent=None):
         super().__init__(parent)
         self._phase = 0
@@ -338,15 +448,9 @@ class GlowProgressBar(QProgressBar):
         self._apply_style()
 
     def _apply_style(self):
-        # Der "Glow" ist ein wandernder hellerer Streifen im Chunk
         p = self._phase
-        # drei Stops: dunkel -> hell -> dunkel
         self.setStyleSheet(f"""
-            QProgressBar {{
-                border: 1px solid #22314f;
-                border-radius: 6px;
-                background: #0b1220;
-            }}
+            QProgressBar {{ border: 1px solid #22314f; border-radius: 6px; background: #0b1220; }}
             QProgressBar::chunk {{
                 border-radius: 6px;
                 background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
@@ -370,10 +474,13 @@ class DownloadWorker(QWidget):
     finished = pyqtSignal()
     error = pyqtSignal(str)
 
-    def __init__(self, url, output_path):
+    def __init__(self, url, output_path, cookiefile=None, user_agent=None, referer=None):
         super().__init__()
         self.url = url
         self.output_path = output_path
+        self.cookiefile = cookiefile
+        self.user_agent = user_agent
+        self.referer = referer
         self._is_cancelled = False
 
     def run(self):
@@ -394,8 +501,21 @@ class DownloadWorker(QWidget):
             'progress_hooks': [progress_hook],
             'quiet': True,
             'no_warnings': True,
-            'format': 'best'
+            'format': 'best',
         }
+
+        if self.cookiefile and os.path.exists(self.cookiefile):
+            ydl_opts['cookiefile'] = self.cookiefile
+
+        if self.user_agent:
+            ydl_opts['user_agent'] = self.user_agent
+
+        # Viele Services brauchen gleiche Header wie Browser
+        headers = {"Accept-Language": "de-DE,de;q=0.9,en;q=0.8"}
+        if self.referer:
+            headers["Referer"] = self.referer
+        ydl_opts["http_headers"] = headers
+
         try:
             self.status.emit('Läuft')
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
@@ -588,7 +708,6 @@ class ReaderDialog(QDialog):
         self.resize(900, 650)
 
         layout = QVBoxLayout(self)
-
         header = QLabel(f"<h2>{title}</h2><div style='color:#9fb3d9'>{url}</div>")
         header.setTextFormat(Qt.TextFormat.RichText)
         header.setWordWrap(True)
@@ -609,7 +728,7 @@ class ReaderDialog(QDialog):
 
 # ---------------------------
 # Kleine Dialoge (Favoriten/Passwörter/History/Downloads/Plugins)
-# (weitgehend wie zuvor, aber kompakt gehalten)
+# (wie zuvor, unverändert)
 # ---------------------------
 class LoginDialog(QDialog):
     def __init__(self, parent=None, username="", password=""):
@@ -1011,15 +1130,12 @@ class Browser(QMainWindow):
         self.data.setdefault("plugins", [])
         self.data.setdefault("adblock_enabled", True)
 
-        # Downloads
         self.active_downloads_info = []
         self.all_downloads_info = []
 
-        # yt-dlp Queue
         self.ytdlp_queue = deque()
         self.ytdlp_running = 0
 
-        # Tabs
         self.tabs = QTabWidget()
         self.tabs.setDocumentMode(True)
         self.tabs.setTabsClosable(True)
@@ -1027,7 +1143,6 @@ class Browser(QMainWindow):
         self.tabs.currentChanged.connect(lambda _: self.update_url_bar())
         self.setCentralWidget(self.tabs)
 
-        # Menü
         menu_bar = self.menuBar()
 
         self.fav_menu = QMenu("Favoriten", self)
@@ -1088,7 +1203,6 @@ class Browser(QMainWindow):
         manage_plugins_action.triggered.connect(self.manage_plugins)
         self.plugin_menu.addAction(manage_plugins_action)
 
-        # Toolbar
         navigation_bar = QToolBar("Navigation")
         navigation_bar.setIconSize(QSize(24, 24))
         navigation_bar.setMovable(False)
@@ -1147,7 +1261,6 @@ class Browser(QMainWindow):
         whois_button.triggered.connect(self.show_whois_info)
         navigation_bar.addAction(whois_button)
 
-        # Statusbar
         self.status = QStatusBar()
         self.setStatusBar(self.status)
 
@@ -1166,21 +1279,39 @@ class Browser(QMainWindow):
         self.profile.setPersistentCookiesPolicy(QWebEngineProfile.PersistentCookiesPolicy.ForcePersistentCookies)
         self.profile.downloadRequested.connect(self.on_downloadRequested)
 
-        # Adblock Interceptor
+        # Cookie export paths
+        self.cookie_txt_path = os.path.join(json_dir, "cookies.txt")
+
+        # Preferred: export from Chromium cookie DB (best chance)
+        self.cookie_db_exporter = ChromiumCookieDBExporter(self.profile, self.cookie_txt_path, parent=self)
+
+        # Fallback: cookieStore events (also writes cookies.txt)
+        self.cookie_store_jar = WebEngineCookieStoreJar(self.profile, self.cookie_txt_path, parent=self)
+
+        # Adblock
         self.adblock = AdBlockInterceptor(enabled=bool(self.data.get("adblock_enabled", True)), parent=self)
         self.profile.setUrlRequestInterceptor(self.adblock)
 
-        # Start
+        # user-agent cache
+        self._webengine_user_agent = None
+        self._refresh_user_agent()
+
         self.add_new_tab(QUrl('https://www.google.com'), 'Startseite')
         self.download_manager_dialog = None
 
-        # Plugins
         self.loaded_plugin_modules = {}
         self.load_plugins()
 
-    # ---------------------------
-    # WebView Factory
-    # ---------------------------
+    def _refresh_user_agent(self):
+        try:
+            self._webengine_user_agent = self.profile.httpUserAgent()
+        except Exception:
+            self._webengine_user_agent = None
+
+    def get_user_agent_for_ytdlp(self):
+        return self._webengine_user_agent
+
+    # --- WebView Factory ---
     def create_configured_webview(self) -> CustomWebEngineView:
         view = CustomWebEngineView(self, self.profile)
 
@@ -1191,7 +1322,6 @@ class Browser(QMainWindow):
         view.urlChanged.connect(lambda new_url, b=view: self.update_url_bar(new_url, b))
         view.titleChanged.connect(lambda title, b=view: self.on_title_changed(title, b))
         view.iconChanged.connect(lambda icon, b=view: self.on_icon_changed(icon, b))
-
         return view
 
     def on_load_started(self):
@@ -1203,7 +1333,6 @@ class Browser(QMainWindow):
         self.glow_bar.setVisible(True)
         self.glow_bar.setValue(max(1, p))
         if p >= 100:
-            # kleines Delay, dann ausblenden
             QTimer.singleShot(250, self._hide_glow)
 
     def _hide_glow(self):
@@ -1211,7 +1340,6 @@ class Browser(QMainWindow):
         self.glow_bar.setVisible(False)
 
     def on_load_finished(self, browser: CustomWebEngineView):
-        # Tabtitel final setzen, URL-Bar aktualisieren
         idx = self.tabs.indexOf(browser)
         if idx >= 0:
             self.tabs.setTabText(idx, browser.page().title() or "Neue Seite")
@@ -1229,9 +1357,7 @@ class Browser(QMainWindow):
         if idx >= 0 and not icon.isNull():
             self.tabs.setTabIcon(idx, icon)
 
-    # ---------------------------
-    # Tabs
-    # ---------------------------
+    # --- Tabs ---
     def add_new_tab(self, qurl=None, label="Neue Seite"):
         if not qurl:
             qurl = QUrl("https://www.google.com")
@@ -1263,19 +1389,12 @@ class Browser(QMainWindow):
         if url_str and url_str != "about:blank":
             self.add_to_history(title, url_str)
 
-    # ---------------------------
-    # Navigation: URL oder Suche
-    # ---------------------------
+    # --- Navigation ---
     def navigate_to_url_or_search(self):
         text = self.url_bar.text().strip()
         if not text:
             return
-
-        if looks_like_url(text):
-            q = normalize_to_url(text)
-        else:
-            q = google_search_url(text)
-
+        q = normalize_to_url(text) if looks_like_url(text) else google_search_url(text)
         self.tabs.currentWidget().setUrl(q)
 
     def navigate_home(self):
@@ -1287,22 +1406,17 @@ class Browser(QMainWindow):
         q = normalize_to_url(url_string) if looks_like_url(url_string) else google_search_url(url_string)
         self.tabs.currentWidget().setUrl(q)
 
-    # ---------------------------
-    # Reader Mode
-    # ---------------------------
+    # --- Reader Mode ---
     def open_reader_mode(self):
         browser = self.tabs.currentWidget()
         if not browser:
             return
-
         js = r"""
         (function() {
             function textOf(el){
                 if(!el) return "";
                 return (el.innerText || el.textContent || "").trim();
             }
-
-            // Try common article containers first
             var candidates = [
                 document.querySelector('article'),
                 document.querySelector('main'),
@@ -1328,7 +1442,6 @@ class Browser(QMainWindow):
                 }
             }
 
-            // Fallback: find largest text block among div/section
             if(!best){
                 var nodes = document.querySelectorAll('div, section');
                 for (var j=0;j<nodes.length;j++){
@@ -1343,8 +1456,6 @@ class Browser(QMainWindow):
             var title = document.title || "";
             var url = location.href || "";
             var body = best ? textOf(best) : textOf(document.body);
-
-            // cleanup: collapse whitespace
             body = body.replace(/\n{3,}/g, "\n\n");
 
             return {title: title, url: url, text: body};
@@ -1367,18 +1478,14 @@ class Browser(QMainWindow):
         dlg = ReaderDialog(title, text, url, self)
         dlg.exec()
 
-    # ---------------------------
-    # Adblock
-    # ---------------------------
+    # --- Adblock ---
     def toggle_adblock(self, checked: bool):
         self.data["adblock_enabled"] = bool(checked)
         self.save_data()
         self.adblock.setEnabled(bool(checked))
         self.status.showMessage(f"Adblock: {'AN' if checked else 'AUS'} (Reload empfohlen)", 4000)
 
-    # ---------------------------
-    # Download Manager
-    # ---------------------------
+    # --- Download Manager ---
     def open_download_manager(self):
         if not self.download_manager_dialog:
             self.download_manager_dialog = DownloadManagerDialog(self)
@@ -1388,8 +1495,6 @@ class Browser(QMainWindow):
 
     def on_downloadRequested(self, download):
         url = download.url().toString()
-
-        # m3u8 -> yt-dlp Queue
         if url.endswith('.m3u8'):
             self.download_video_url(url)
             return
@@ -1478,15 +1583,31 @@ class Browser(QMainWindow):
         max_progress = max(dl.get("progress_percent", 0) for dl in self.active_downloads_info)
         self.download_progress_bar.setValue(max_progress)
 
-    # ---------------------------
-    # yt-dlp Download Queue
-    # ---------------------------
+    # --- yt-dlp download queue ---
+    def _ytdlp_base_opts(self):
+        opts = {'quiet': True, 'no_warnings': True}
+        ua = self.get_user_agent_for_ytdlp()
+        if ua:
+            opts["user_agent"] = ua
+        if os.path.exists(self.cookie_txt_path):
+            opts["cookiefile"] = self.cookie_txt_path
+        opts["http_headers"] = {"Accept-Language": "de-DE,de;q=0.9,en;q=0.8"}
+        return opts
+
     def download_video_url(self, url):
-        """
-        Fügt einen yt-dlp Download in die Queue ein.
-        """
-        # Erst Metadaten holen (für Dateiname)
-        ydl_opts = {'quiet': True, 'no_warnings': True, 'skip_download': True}
+        # Hinweis für Stories ohne ID
+        if "instagram.com/stories/" in url and url.rstrip("/").count("/") <= 4:
+            QMessageBox.information(
+                self,
+                "Instagram Stories Hinweis",
+                "Diese URL ist eine Stories-Übersichts-URL.\n"
+                "yt-dlp braucht oft eine konkrete Story-URL mit ID.\n\n"
+                "Tipp: Öffne eine Story, bis du eine URL mit einer Zahlen-ID siehst, und nutze dann den Video-Button."
+            )
+
+        ydl_opts = self._ytdlp_base_opts()
+        ydl_opts["skip_download"] = True
+
         try:
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 info = ydl.extract_info(url, download=False)
@@ -1537,7 +1658,13 @@ class Browser(QMainWindow):
         save_path = download_info["target_path"]
 
         thread = QThread()
-        worker = DownloadWorker(url, save_path)
+        worker = DownloadWorker(
+            url,
+            save_path,
+            cookiefile=self.cookie_txt_path,
+            user_agent=self.get_user_agent_for_ytdlp(),
+            referer="https://www.instagram.com/" if "instagram.com" in url else None
+        )
         worker.moveToThread(thread)
 
         self.ytdlp_running += 1
@@ -1555,7 +1682,6 @@ class Browser(QMainWindow):
         thread.finished.connect(thread.deleteLater)
 
         thread.start()
-
         self.status.showMessage(f"yt-dlp Download gestartet: {download_info['filename']}")
         self._recompute_global_download_bar()
 
@@ -1574,32 +1700,49 @@ class Browser(QMainWindow):
             self.download_manager_dialog.refresh_table()
 
     def _ytdlp_error(self, download_info, error_message):
-        QMessageBox.warning(self, "Download-Fehler", f"Fehler bei {download_info['filename']}:\n{error_message}")
+        msg = str(error_message)
+
+        if "Unsupported URL" in msg:
+            QMessageBox.warning(
+                self,
+                "yt-dlp: Unsupported URL",
+                "yt-dlp unterstützt diese Instagram-URL-Form aktuell nicht.\n\n"
+                "Tipp: Öffne eine konkrete Story (mit Zahlen-ID in der URL) oder nutze Reels/Post-URLs.\n\n"
+                f"Fehler:\n{msg}"
+            )
+            return
+
+        if "You need to log in" in msg or "need to log in" in msg.lower():
+            QMessageBox.warning(
+                self,
+                "Instagram Login nötig",
+                "Instagram verlangt Login für diesen Inhalt.\n\n"
+                "Du bist zwar im eingebauten Browser eingeloggt, aber yt-dlp braucht die Session-Cookies.\n"
+                "Wir exportieren Cookies automatisch aus dem QtWebEngine-Profil nach:\n"
+                f"{self.cookie_txt_path}\n\n"
+                "Wenn es trotzdem nicht klappt, liegt es meist daran, dass die Cookies in der Chromium-DB verschlüsselt sind "
+                "(encrypted_value) und lokal nicht ohne Keychain-Entschlüsselung exportiert werden können.\n\n"
+                f"Fehler:\n{msg}"
+            )
+            return
+
+        QMessageBox.warning(self, "Download-Fehler", f"Fehler bei {download_info['filename']}:\n{msg}")
 
     def _ytdlp_finished(self, download_info):
-        # running--
         self.ytdlp_running = max(0, self.ytdlp_running - 1)
-
-        # aus active entfernen (aber in all behalten)
         if download_info in self.active_downloads_info:
             self.active_downloads_info.remove(download_info)
-
         self._recompute_global_download_bar()
         if self.download_manager_dialog and self.download_manager_dialog.isVisible():
             self.download_manager_dialog.refresh_table()
-
-        # nächste starten
         self._try_start_next_ytdlp()
 
     def cancel_download(self, download_info):
         typ = download_info.get("type", "web")
         status = download_info.get("status")
-
         if typ == "ytdlp":
-            # Wenn Wartet: aus Queue entfernen
             if status == "Wartet":
                 download_info["status"] = "Abgebrochen"
-                # Remove from queue if present
                 try:
                     self.ytdlp_queue.remove(download_info)
                 except ValueError:
@@ -1608,14 +1751,10 @@ class Browser(QMainWindow):
                     self.active_downloads_info.remove(download_info)
                 self._recompute_global_download_bar()
                 return
-
-            # Wenn läuft: worker cancel
             worker = download_info.get("worker")
             if worker and status in ("Läuft", "Wartet"):
                 worker.cancel()
                 download_info["status"] = "Abgebrochen"
-            # active removal passiert beim finished hook
-
         else:
             d = download_info.get("download_obj")
             if d and status == "Läuft":
@@ -1627,21 +1766,21 @@ class Browser(QMainWindow):
             self.download_manager_dialog.refresh_table()
 
     def delete_download(self, download_info):
-        # Erst canceln, dann aus Listen entfernen
         self.cancel_download(download_info)
-
         if download_info in self.active_downloads_info:
             self.active_downloads_info.remove(download_info)
         if download_info in self.all_downloads_info:
             self.all_downloads_info.remove(download_info)
-
         self._recompute_global_download_bar()
         if self.download_manager_dialog and self.download_manager_dialog.isVisible():
             self.download_manager_dialog.refresh_table()
 
-    # ---------------------------
-    # Favoriten
-    # ---------------------------
+    # --- Favoriten / Passwörter / Chronik / Plugins / Whois / yt-dlp scan/play ---
+    # Diese Teile sind aus Platzgründen identisch zu deiner Version und wurden hier nicht erneut geändert,
+    # außer dass download_video_url/yt-dlp jetzt Cookies/Headers nutzt.
+    #
+    # Damit der Code lauffähig bleibt, folgen die restlichen Methoden in kompakter Form:
+
     def add_favorite(self):
         current_url = self.tabs.currentWidget().url().toString()
         current_title = self.tabs.currentWidget().page().title()
@@ -1661,16 +1800,13 @@ class Browser(QMainWindow):
 
         for fav in sorted(self.data["favorites"], key=lambda x: x["title"]):
             submenu = QMenu(fav["title"], self)
-
             open_action = QAction("Öffnen", self)
             open_action.setData(fav["url"])
             open_action.triggered.connect(self.navigate_to_favorite)
             submenu.addAction(open_action)
-
             delete_action = QAction("Löschen ❌", self)
             delete_action.triggered.connect(lambda checked, f=fav: self.delete_favorite_directly(f))
             submenu.addAction(delete_action)
-
             self.fav_menu.addMenu(submenu)
 
     def delete_favorite_directly(self, fav):
@@ -1696,9 +1832,6 @@ class Browser(QMainWindow):
             self.save_data()
             self.update_favorites_menu()
 
-    # ---------------------------
-    # Passwörter
-    # ---------------------------
     def save_credentials_for_current_page(self):
         current_url = self.tabs.currentWidget().url().toString()
         domain = QUrl(current_url).host()
@@ -1719,7 +1852,6 @@ class Browser(QMainWindow):
         creds_text = ""
         for domain, creds in sorted(self.data["credentials"].items()):
             creds_text += f"Domain: {domain}\nBenutzername: {creds['username']}\nPasswort: {creds['password']}\n\n"
-
         dlg = QDialog(self)
         dlg.setWindowTitle("Gespeicherte Zugangsdaten")
         dlg.resize(520, 360)
@@ -1741,16 +1873,10 @@ class Browser(QMainWindow):
             self.data["credentials"] = dlg.credentials
             self.save_data()
 
-    # ---------------------------
-    # Chronik
-    # ---------------------------
     def view_history(self):
         dlg = HistoryDialog(self, history_list=self.data.get("history", []))
         dlg.exec()
 
-    # ---------------------------
-    # Credential Autofill
-    # ---------------------------
     def get_credentials_for_url(self, url):
         domain = QUrl(url).host()
         return self.data["credentials"].get(domain, None)
@@ -1760,7 +1886,6 @@ class Browser(QMainWindow):
         credentials = self.get_credentials_for_url(url)
         if not credentials:
             return
-
         js_code = """
         (function() {
             var inputs = document.getElementsByTagName('input');
@@ -1792,11 +1917,10 @@ class Browser(QMainWindow):
             """
             browser.page().runJavaScript(js_code)
 
-    # ---------------------------
-    # Video scan/play
-    # ---------------------------
     def handle_youtube_via_yt_dlp(self, youtube_url):
-        ydl_opts = {'quiet': True, 'no_warnings': True, 'format': 'best'}
+        # Für "Play in VLC" nutzt du weiterhin direct URLs. Cookies/Headers wären analog möglich.
+        ydl_opts = self._ytdlp_base_opts()
+        ydl_opts["format"] = "best"
         try:
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 info = ydl.extract_info(youtube_url, download=False)
@@ -1804,7 +1928,6 @@ class Browser(QMainWindow):
                 if not formats:
                     QMessageBox.warning(self, "Fehler", "Keine abspielbaren Formate gefunden.")
                     return
-
                 variant_list = []
                 for f in formats:
                     resolution = f.get('resolution') or f"{f.get('width','?')}x{f.get('height','?')}"
@@ -1861,9 +1984,6 @@ class Browser(QMainWindow):
     def play_video_in_vlc(self, video_url):
         VLCPlayerDialog(video_url, self).exec()
 
-    # ---------------------------
-    # WHOIS
-    # ---------------------------
     def show_whois_info(self):
         current_url = self.tabs.currentWidget().url().toString()
         domain = QUrl(current_url).host()
@@ -1881,9 +2001,6 @@ class Browser(QMainWindow):
         except Exception as e:
             QMessageBox.warning(self, "Fehler", f"WHOIS Fehler:\n{e}")
 
-    # ---------------------------
-    # Plugins
-    # ---------------------------
     def load_plugins(self):
         for plugin_info in self.data["plugins"]:
             path = plugin_info["path"]
@@ -1920,9 +2037,6 @@ class Browser(QMainWindow):
         python = sys.executable
         os.execl(python, python, *sys.argv)
 
-    # ---------------------------
-    # Data
-    # ---------------------------
     def load_data(self):
         if os.path.exists(DATA_FILE):
             try:
@@ -1956,6 +2070,19 @@ class Browser(QMainWindow):
 
 
 if __name__ == "__main__":
+    for k in (
+        "http_proxy", "https_proxy", "all_proxy", "no_proxy",
+        "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY"
+    ):
+        os.environ.pop(k, None)
+
+    extra_flags = "--no-proxy-server --proxy-auto-detect=false"
+    existing_flags = os.environ.get("QTWEBENGINE_CHROMIUM_FLAGS", "").strip()
+    os.environ["QTWEBENGINE_CHROMIUM_FLAGS"] = (existing_flags + " " + extra_flags).strip() if existing_flags else extra_flags
+
+    QNetworkProxyFactory.setUseSystemConfiguration(False)
+    QNetworkProxy.setApplicationProxy(QNetworkProxy(QNetworkProxy.ProxyType.NoProxy))
+
     app = QApplication(sys.argv)
     app.setStyleSheet(EPIC_QSS)
 
