@@ -78,18 +78,6 @@ jobs:
             Write-Output "public_suffix_list.dat gefunden."
           }
 
-      - name: Display Python Version
-        run: python --version
-
-      - name: List Installed Packages
-        run: pip list
-
-      - name: Display Environment Variables
-        shell: powershell
-        run: |
-          Write-Output "Umgebungsvariablen:"
-          Get-ChildItem Env:
-
       - name: Build EXE
         shell: powershell
         run: |
@@ -205,17 +193,6 @@ jobs:
             --runtime-hook hooks/hook-vlc.py \
             TMP-Networks-Browser-Mini.py
 
-      - name: List dist Directory
-        run: |
-          echo "Inhalt von dist/:"
-          ls -la dist/
-
-      - name: Check Write Permissions
-        run: |
-          echo "Überprüfe Schreibrechte im Application Support-Verzeichnis:"
-          python -c "import appdirs, os; dirs = appdirs.AppDirs('TMPNetworksBrowserMini', 'MTSmash'); print(dirs.user_data_dir)"
-          python -c "import appdirs, os; dirs = appdirs.AppDirs('TMPNetworksBrowserMini', 'MTSmash'); os.makedirs(dirs.user_data_dir, exist_ok=True); open(os.path.join(dirs.user_data_dir, 'test_write.txt'), 'w').close()"
-
       - name: Compress .app for Artifact
         run: |
           cd dist
@@ -277,20 +254,14 @@ jobs:
             exit 1
           fi
 
-          PLUGINS_PATH=$(dirname "$LIBVLC_PATH")/vlc/plugins
-          if [ -d "$PLUGINS_PATH" ]; then
-            echo "VLC Plugins gefunden unter $PLUGINS_PATH."
+          # Plugins-Ordner suchen (mit plugins.dat!)
+          if [ -d "/usr/lib/vlc/plugins" ] && [ -f "/usr/lib/vlc/plugins/plugins.dat" ]; then
+            PLUGINS_PATH="/usr/lib/vlc/plugins"
+          elif [ -d "/usr/lib/x86_64-linux-gnu/vlc/plugins" ] && [ -f "/usr/lib/x86_64-linux-gnu/vlc/plugins/plugins.dat" ]; then
+            PLUGINS_PATH="/usr/lib/x86_64-linux-gnu/vlc/plugins"
           else
-            if [ -d "/usr/lib/vlc/plugins" ]; then
-              PLUGINS_PATH="/usr/lib/vlc/plugins"
-              echo "VLC Plugins gefunden unter $PLUGINS_PATH."
-            elif [ -d "/usr/lib/x86_64-linux-gnu/vlc/plugins" ]; then
-              PLUGINS_PATH="/usr/lib/x86_64-linux-gnu/vlc/plugins"
-              echo "VLC Plugins gefunden unter $PLUGINS_PATH."
-            else
-              echo "VLC Plugins nicht gefunden."
-              exit 1
-            fi
+            echo "VLC Plugins nicht gefunden."
+            exit 1
           fi
 
           echo "LIBVLC_PATH=$LIBVLC_PATH" >> $GITHUB_ENV
@@ -322,34 +293,29 @@ jobs:
             echo "public_suffix_list.dat gefunden."
           fi
 
-      - name: Display Python Version
-        run: python --version
-
-      - name: List Installed Packages
-        run: pip list
-
-      - name: Display Environment Variables
-        run: |
-          echo "Umgebungsvariablen:"
-          printenv
-
       - name: Create runtime hook for VLC
         run: |
           mkdir -p hooks
-          echo "import os, sys" > hooks/hook-vlc.py
-          echo "def set_ld_library_path():" >> hooks/hook-vlc.py
-          echo "    base_path = getattr(sys, '_MEIPASS', os.path.dirname(os.path.abspath(__file__)))" >> hooks/hook-vlc.py
-          echo "    vlc_lib_path = os.path.join(base_path, 'lib')" >> hooks/hook-vlc.py
-          echo "    if os.path.exists(vlc_lib_path):" >> hooks/hook-vlc.py
-          echo "        os.environ['LD_LIBRARY_PATH'] = vlc_lib_path + ':' + os.environ.get('LD_LIBRARY_PATH', '')" >> hooks/hook-vlc.py
-          echo "set_ld_library_path()" >> hooks/hook-vlc.py
+          cat <<EOF > hooks/hook-vlc.py
+import os, sys
+
+base = getattr(sys, "_MEIPASS", os.path.dirname(os.path.abspath(__file__)))
+lib_dir = os.path.join(base, "lib")
+plugins_dir = os.path.join(base, "plugins")
+
+if os.path.isdir(lib_dir):
+    os.environ["LD_LIBRARY_PATH"] = lib_dir + ":" + os.environ.get("LD_LIBRARY_PATH", "")
+
+if os.path.isdir(plugins_dir):
+    os.environ["VLC_PLUGIN_PATH"] = plugins_dir
+    os.environ["VLC_DATA_PATH"] = base
+EOF
 
       - name: Build Executable
         run: |
           rm -rf build dist
 
-          pyinstaller --onefile \
-            --windowed \
+          pyinstaller --windowed \
             --icon=assets/logo.png \
             --collect-all PyQt6.QtWebEngineCore \
             --collect-all PyQt6.QtWebEngineWidgets \
@@ -363,14 +329,9 @@ jobs:
           echo "Inhalt von dist/:"
           ls -R dist/
 
-      - name: Check Library Dependencies
-        run: |
-          ldd dist/TMP-Networks-Browser-Mini || true
-          find dist -name "*.so" -exec ldd {} \; || true
-
       - name: Upload Build Artifact
         uses: actions/upload-artifact@v4
         with:
           name: TMP-Networks-Browser-Mini-Linux-Executable
-          path: dist/TMP-Networks-Browser-Mini
+          path: dist/TMP-Networks-Browser-Mini/
           if-no-files-found: warn
