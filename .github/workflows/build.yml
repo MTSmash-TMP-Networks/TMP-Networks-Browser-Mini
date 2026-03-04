@@ -1,4 +1,4 @@
-name: Build Executables
+name: Build Executables (ONEFILE)
 
 on:
   push:
@@ -10,7 +10,7 @@ on:
 
 jobs:
   build-windows:
-    name: Build (Windows)
+    name: Build (Windows) - ONEFILE
     runs-on: windows-latest
     steps:
       - name: Checkout Repository
@@ -66,19 +66,14 @@ jobs:
           base = getattr(sys, "_MEIPASS", os.path.dirname(os.path.abspath(__file__)))
           plugins_dir = os.path.join(base, "plugins")
 
-          # Plugin path
           if os.path.isdir(plugins_dir):
               os.environ["VLC_PLUGIN_PATH"] = plugins_dir
 
-          # Put VLC cache somewhere writable (helps in onefile)
           cache_dir = os.path.join(tempfile.gettempdir(), "vlc-cache")
           os.makedirs(cache_dir, exist_ok=True)
           os.environ["APPDATA"] = cache_dir
           '@ | Set-Content -Encoding UTF8 hooks/hook-vlc.py
 
-      # -------------------------
-      # WINDOWS: ONEFILE (TEST)
-      # -------------------------
       - name: Build (Windows) - ONEFILE
         shell: powershell
         run: |
@@ -86,7 +81,7 @@ jobs:
           if (Test-Path dist)  { Remove-Item -Recurse -Force dist }
 
           pyinstaller --onefile --windowed `
-            --name "TMP-Networks-Browser-Mini-onefile" `
+            --name "TMP-Networks-Browser-Mini" `
             --icon=assets/logo.ico `
             --collect-all PyQt6.QtWebEngineCore `
             --collect-all PyQt6.QtWebEngineWidgets `
@@ -97,55 +92,20 @@ jobs:
             --runtime-hook hooks/hook-vlc.py `
             TMP-Networks-Browser-Mini.py
 
-          # remove plugin cache (paths often wrong in bundle)
+          # VLC plugin cache often breaks inside bundles
           if (Test-Path "dist\plugins\plugins.dat") { Remove-Item -Force "dist\plugins\plugins.dat" }
 
           Get-ChildItem -Recurse dist
 
-      - name: Upload Artifact (Windows ONEFILE)
+      - name: Upload Build Artifact (Windows)
         uses: actions/upload-artifact@v4
         with:
-          name: "TMP-Networks-Browser-Mini-Windows-ONEFILE"
-          path: "dist/TMP-Networks-Browser-Mini-onefile.exe"
-          if-no-files-found: "warn"
-
-      # -------------------------
-      # WINDOWS: ONEDIR (FALLBACK)
-      # -------------------------
-      - name: Build (Windows) - ONEDIR
-        shell: powershell
-        run: |
-          if (Test-Path build) { Remove-Item -Recurse -Force build }
-          if (Test-Path dist)  { Remove-Item -Recurse -Force dist }
-
-          pyinstaller --onedir --windowed `
-            --name "TMP-Networks-Browser-Mini-onedir" `
-            --icon=assets/logo.ico `
-            --collect-all PyQt6.QtWebEngineCore `
-            --collect-all PyQt6.QtWebEngineWidgets `
-            --add-binary "C:\Program Files\VideoLAN\VLC\libvlc.dll;." `
-            --add-binary "C:\Program Files\VideoLAN\VLC\libvlccore.dll;." `
-            --add-data "C:\Program Files\VideoLAN\VLC\plugins;plugins" `
-            --add-data "$env:PUBLIC_SUFFIX_PATH;whois\data" `
-            --runtime-hook hooks/hook-vlc.py `
-            TMP-Networks-Browser-Mini.py
-
-          # remove plugin cache
-          if (Test-Path "dist\TMP-Networks-Browser-Mini-onedir\plugins\plugins.dat") {
-            Remove-Item -Force "dist\TMP-Networks-Browser-Mini-onedir\plugins\plugins.dat"
-          }
-
-          Get-ChildItem -Recurse dist
-
-      - name: Upload Artifact (Windows ONEDIR)
-        uses: actions/upload-artifact@v4
-        with:
-          name: "TMP-Networks-Browser-Mini-Windows-ONEDIR"
-          path: "dist/TMP-Networks-Browser-Mini-onedir"
+          name: "TMP-Networks-Browser-Mini-Windows"
+          path: "dist/TMP-Networks-Browser-Mini.exe"
           if-no-files-found: "warn"
 
   build-macos:
-    name: Build (macOS)
+    name: Build (macOS) - ONEFILE
     runs-on: macos-latest
     steps:
       - name: Checkout Repository
@@ -207,16 +167,13 @@ jobs:
           os.environ["XDG_CACHE_HOME"] = cache_dir
           PY
 
-      # -------------------------
-      # MACOS: ONEFILE (TEST)
-      # -------------------------
       - name: Build (macOS) - ONEFILE
         run: |
           rm -rf build dist
           test -f "$PUBLIC_SUFFIX_PATH"
 
           pyinstaller --onefile --windowed \
-            --name "TMP-Networks-Browser-Mini-onefile" \
+            --name "TMP-Networks-Browser-Mini" \
             --icon=assets/logo.icns \
             --collect-all PyQt6.QtWebEngineCore \
             --collect-all PyQt6.QtWebEngineWidgets \
@@ -227,52 +184,18 @@ jobs:
             --runtime-hook hooks/hook-vlc.py \
             TMP-Networks-Browser-Mini.py
 
-          # remove plugin cache
           find dist -path "*plugins/plugins.dat" -delete || true
-
           ls -R dist
 
-      - name: Upload Artifact (macOS ONEFILE)
+      - name: Upload Build Artifact (macOS)
         uses: actions/upload-artifact@v4
         with:
-          name: "TMP-Networks-Browser-Mini-macOS-ONEFILE"
-          path: "dist/TMP-Networks-Browser-Mini-onefile"
-          if-no-files-found: "warn"
-
-      # -------------------------
-      # MACOS: ONEDIR (FALLBACK) + ZIP
-      # -------------------------
-      - name: Build (macOS) - ONEDIR
-        run: |
-          rm -rf build dist
-          test -f "$PUBLIC_SUFFIX_PATH"
-
-          pyinstaller --onedir --windowed \
-            --name "TMP-Networks-Browser-Mini-onedir" \
-            --icon=assets/logo.icns \
-            --collect-all PyQt6.QtWebEngineCore \
-            --collect-all PyQt6.QtWebEngineWidgets \
-            --add-binary "/Applications/VLC.app/Contents/MacOS/lib/libvlc.dylib:lib" \
-            --add-binary "/Applications/VLC.app/Contents/MacOS/lib/libvlccore.dylib:lib" \
-            --add-data "/Applications/VLC.app/Contents/MacOS/plugins:plugins" \
-            --add-data "$PUBLIC_SUFFIX_PATH:whois/data" \
-            --runtime-hook hooks/hook-vlc.py \
-            TMP-Networks-Browser-Mini.py
-
-          find dist -path "*plugins/plugins.dat" -delete || true
-
-          cd dist
-          ditto -c -k --sequesterRsrc --keepParent "TMP-Networks-Browser-Mini-onedir.app" "TMP-Networks-Browser-Mini-onedir-macOS.zip"
-
-      - name: Upload Artifact (macOS ONEDIR)
-        uses: actions/upload-artifact@v4
-        with:
-          name: "TMP-Networks-Browser-Mini-macOS-ONEDIR"
-          path: "dist/TMP-Networks-Browser-Mini-onedir-macOS.zip"
+          name: "TMP-Networks-Browser-Mini-macOS"
+          path: "dist/TMP-Networks-Browser-Mini"
           if-no-files-found: "warn"
 
   build-linux:
-    name: Build (Linux)
+    name: Build (Linux) - ONEFILE
     runs-on: ubuntu-24.04
     steps:
       - name: Checkout Repository
@@ -360,46 +283,12 @@ jobs:
           os.environ["XDG_CACHE_HOME"] = cache_dir
           PY
 
-      # -------------------------
-      # LINUX: ONEFILE (TEST)
-      # -------------------------
       - name: Build (Linux) - ONEFILE
         run: |
           rm -rf build dist
 
           pyinstaller --onefile --windowed \
-            --name "TMP-Networks-Browser-Mini-onefile" \
-            --icon=assets/logo.png \
-            --collect-all PyQt6.QtWebEngineCore \
-            --collect-all PyQt6.QtWebEngineWidgets \
-            --add-binary "${LIBVLC_PATH}:lib" \
-            --add-binary "${LIBVLCCORE_PATH}:lib" \
-            --add-data "${PLUGINS_PATH}:plugins" \
-            --add-data "${PUBLIC_SUFFIX_PATH}:whois/data" \
-            --runtime-hook hooks/hook-vlc.py \
-            TMP-Networks-Browser-Mini.py
-
-          # remove plugin cache (very important)
-          find dist -path "*plugins/plugins.dat" -delete || true
-
-          ls -R dist
-
-      - name: Upload Artifact (Linux ONEFILE)
-        uses: actions/upload-artifact@v4
-        with:
-          name: "TMP-Networks-Browser-Mini-Linux-ONEFILE"
-          path: "dist/TMP-Networks-Browser-Mini-onefile"
-          if-no-files-found: "warn"
-
-      # -------------------------
-      # LINUX: ONEDIR (FALLBACK)
-      # -------------------------
-      - name: Build (Linux) - ONEDIR
-        run: |
-          rm -rf build dist
-
-          pyinstaller --onedir --windowed \
-            --name "TMP-Networks-Browser-Mini-onedir" \
+            --name "TMP-Networks-Browser-Mini" \
             --icon=assets/logo.png \
             --collect-all PyQt6.QtWebEngineCore \
             --collect-all PyQt6.QtWebEngineWidgets \
@@ -411,12 +300,11 @@ jobs:
             TMP-Networks-Browser-Mini.py
 
           find dist -path "*plugins/plugins.dat" -delete || true
-
           ls -R dist
 
-      - name: Upload Artifact (Linux ONEDIR)
+      - name: Upload Build Artifact (Linux)
         uses: actions/upload-artifact@v4
         with:
-          name: "TMP-Networks-Browser-Mini-Linux-ONEDIR"
-          path: "dist/TMP-Networks-Browser-Mini-onedir"
+          name: "TMP-Networks-Browser-Mini-Linux"
+          path: "dist/TMP-Networks-Browser-Mini"
           if-no-files-found: "warn"
