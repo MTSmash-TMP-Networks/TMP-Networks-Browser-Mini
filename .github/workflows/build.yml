@@ -2,19 +2,14 @@ name: Build Executables
 
 on:
   push:
-    branches:
-      - qt6
+    branches: [qt6]
   pull_request:
-    branches:
-      - qt6
+    branches: [qt6]
 
 jobs:
-  # ------------------------------
-  # 1) BUILD ON WINDOWS
-  # ------------------------------
   build-windows:
+    name: Build (Windows)
     runs-on: windows-latest
-
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
@@ -22,7 +17,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
+          python-version: "3.11"
 
       - name: Install VLC
         run: choco install vlc -y
@@ -62,11 +57,10 @@ jobs:
           python -m pip install -U --pre "yt-dlp[default]"
 
       - name: Find public_suffix_list.dat
-        id: find_public_suffix
         shell: powershell
         run: |
           $PUBLIC_SUFFIX_PATH = python -c "import whois, os; print(os.path.join(os.path.dirname(whois.__file__), 'data', 'public_suffix_list.dat'))"
-          Write-Output "PUBLIC_SUFFIX_PATH=$PUBLIC_SUFFIX_PATH" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "PUBLIC_SUFFIX_PATH=$PUBLIC_SUFFIX_PATH" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
       - name: Verify public_suffix_list.dat Exists
         shell: powershell
@@ -94,7 +88,6 @@ jobs:
             --add-data "$env:PUBLIC_SUFFIX_PATH;whois\data" `
             TMP-Networks-Browser-Mini.py
 
-          Write-Output "Inhalt von dist/:"
           Get-ChildItem -Recurse dist/
 
       - name: Upload Build Artifact
@@ -103,29 +96,22 @@ jobs:
           name: TMP-Networks-Browser-Mini-Windows-Executable
           path: dist/TMP-Networks-Browser-Mini.exe
           if-no-files-found: warn
-          include-hidden-files: false
 
-  # ------------------------------
-  # 2) BUILD ON macOS
-  # ------------------------------
   build-macos:
+    name: Build (macOS)
     runs-on: macos-latest
-
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
       - name: Verify Icon File Exists
         run: |
-          if [ ! -f assets/logo.icns ]; then
-            echo "Error: assets/logo.icns not found!"
-            exit 1
-          fi
+          test -f assets/logo.icns
 
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
+          python-version: "3.11"
 
       - name: Install VLC
         run: brew install --cask vlc
@@ -133,20 +119,9 @@ jobs:
       - name: Verify VLC Libraries on macOS
         run: |
           VLC_LIB_DIR="/Applications/VLC.app/Contents/MacOS/lib"
-          if [ ! -f "$VLC_LIB_DIR/libvlc.dylib" ]; then
-            echo "Error: libvlc.dylib not found in $VLC_LIB_DIR"
-            exit 1
-          fi
-
-          if [ ! -f "$VLC_LIB_DIR/libvlccore.dylib" ]; then
-            echo "Error: libvlccore.dylib not found in $VLC_LIB_DIR"
-            exit 1
-          fi
-
-          if [ ! -d "/Applications/VLC.app/Contents/MacOS/plugins" ]; then
-            echo "Error: VLC plugins directory not found."
-            exit 1
-          fi
+          test -f "$VLC_LIB_DIR/libvlc.dylib"
+          test -f "$VLC_LIB_DIR/libvlccore.dylib"
+          test -d "/Applications/VLC.app/Contents/MacOS/plugins"
 
       - name: Install Dependencies
         run: |
@@ -159,27 +134,21 @@ jobs:
           python -m pip install -U --pre "yt-dlp[default]"
 
       - name: Find public_suffix_list.dat
-        id: find_public_suffix
         run: |
-          PUBLIC_SUFFIX_PATH=$(python -c "import whois, os; print(os.path.join(os.path.dirname(whois.__file__), 'data', 'public_suffix_list.dat'))")
-          echo "PUBLIC_SUFFIX_PATH=$PUBLIC_SUFFIX_PATH" >> $GITHUB_ENV
+          PUBLIC_SUFFIX_PATH="$(python -c "import whois, os; print(os.path.join(os.path.dirname(whois.__file__), 'data', 'public_suffix_list.dat'))")"
+          echo "PUBLIC_SUFFIX_PATH=$PUBLIC_SUFFIX_PATH" >> "$GITHUB_ENV"
 
       - name: Build macOS App
         run: |
           rm -rf build dist
 
-          if [ ! -f "$PUBLIC_SUFFIX_PATH" ]; then
-            echo "Error: public_suffix_list.dat nicht gefunden unter $PUBLIC_SUFFIX_PATH"
-            exit 1
-          fi
+          test -f "$PUBLIC_SUFFIX_PATH"
 
           mkdir -p hooks
-          cat <<EOF > hooks/hook-vlc.py
+          cat <<'EOF' > hooks/hook-vlc.py
 import os, sys
-
 base = getattr(sys, "_MEIPASS", os.path.dirname(os.path.abspath(__file__)))
 lib_dir = os.path.join(base, "lib")
-
 if os.path.isdir(lib_dir):
     os.environ["DYLD_LIBRARY_PATH"] = lib_dir + ":" + os.environ.get("DYLD_LIBRARY_PATH", "")
 EOF
@@ -198,8 +167,7 @@ EOF
       - name: Compress .app for Artifact
         run: |
           cd dist
-          ditto -c -k --sequesterRsrc --keepParent "TMP-Networks-Browser-Mini.app" \
-                "TMP-Networks-Browser-Mini-macOS.zip"
+          ditto -c -k --sequesterRsrc --keepParent "TMP-Networks-Browser-Mini.app" "TMP-Networks-Browser-Mini-macOS.zip"
 
       - name: Upload Build Artifact
         uses: actions/upload-artifact@v4
@@ -208,12 +176,9 @@ EOF
           path: dist/TMP-Networks-Browser-Mini-macOS.zip
           if-no-files-found: warn
 
-  # ------------------------------
-  # 3) BUILD ON LINUX
-  # ------------------------------
   build-linux:
+    name: Build (Linux)
     runs-on: ubuntu-24.04
-
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
@@ -221,15 +186,15 @@ EOF
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
+          python-version: "3.11"
 
       - name: Cache pip
         uses: actions/cache@v4
         with:
           path: ~/.cache/pip
-          key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
+          key: "${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}"
           restore-keys: |
-            ${{ runner.os }}-pip-
+            "${{ runner.os }}-pip-"
 
       - name: Install VLC and Dependencies
         run: |
@@ -240,23 +205,12 @@ EOF
 
       - name: Verify VLC Installation
         run: |
-          LIBVLC_PATH=$(ldconfig -p | grep libvlc.so | head -n 1 | awk '{print $4}')
-          if [ -f "$LIBVLC_PATH" ]; then
-            echo "libvlc.so gefunden unter $LIBVLC_PATH."
-          else
-            echo "libvlc.so nicht gefunden."
-            exit 1
-          fi
+          LIBVLC_PATH="$(ldconfig -p | grep 'libvlc\.so' | head -n 1 | awk '{print $4}')"
+          test -f "$LIBVLC_PATH"
 
-          LIBVLCCORE_PATH=$(ldconfig -p | grep libvlccore.so | head -n 1 | awk '{print $4}')
-          if [ -f "$LIBVLCCORE_PATH" ]; then
-            echo "libvlccore.so gefunden unter $LIBVLCCORE_PATH."
-          else
-            echo "libvlccore.so nicht gefunden."
-            exit 1
-          fi
+          LIBVLCCORE_PATH="$(ldconfig -p | grep 'libvlccore\.so' | head -n 1 | awk '{print $4}')"
+          test -f "$LIBVLCCORE_PATH"
 
-          # Plugins-Ordner suchen (mit plugins.dat!)
           if [ -d "/usr/lib/vlc/plugins" ] && [ -f "/usr/lib/vlc/plugins/plugins.dat" ]; then
             PLUGINS_PATH="/usr/lib/vlc/plugins"
           elif [ -d "/usr/lib/x86_64-linux-gnu/vlc/plugins" ] && [ -f "/usr/lib/x86_64-linux-gnu/vlc/plugins/plugins.dat" ]; then
@@ -266,9 +220,9 @@ EOF
             exit 1
           fi
 
-          echo "LIBVLC_PATH=$LIBVLC_PATH" >> $GITHUB_ENV
-          echo "LIBVLCCORE_PATH=$LIBVLCCORE_PATH" >> $GITHUB_ENV
-          echo "PLUGINS_PATH=$PLUGINS_PATH" >> $GITHUB_ENV
+          echo "LIBVLC_PATH=$LIBVLC_PATH" >> "$GITHUB_ENV"
+          echo "LIBVLCCORE_PATH=$LIBVLCCORE_PATH" >> "$GITHUB_ENV"
+          echo "PLUGINS_PATH=$PLUGINS_PATH" >> "$GITHUB_ENV"
 
       - name: Install Python Dependencies
         run: |
@@ -281,26 +235,19 @@ EOF
           python -m pip install -U --pre "yt-dlp[default]"
 
       - name: Find public_suffix_list.dat
-        id: find_public_suffix
         run: |
-          PUBLIC_SUFFIX_PATH=$(python -c "import whois, os; print(os.path.join(os.path.dirname(whois.__file__), 'data', 'public_suffix_list.dat'))")
-          echo "PUBLIC_SUFFIX_PATH=$PUBLIC_SUFFIX_PATH" >> $GITHUB_ENV
+          PUBLIC_SUFFIX_PATH="$(python -c "import whois, os; print(os.path.join(os.path.dirname(whois.__file__), 'data', 'public_suffix_list.dat'))")"
+          echo "PUBLIC_SUFFIX_PATH=$PUBLIC_SUFFIX_PATH" >> "$GITHUB_ENV"
 
       - name: Verify public_suffix_list.dat Exists
         run: |
-          if [ ! -f "$PUBLIC_SUFFIX_PATH" ]; then
-            echo "public_suffix_list.dat nicht gefunden unter $PUBLIC_SUFFIX_PATH"
-            exit 1
-          else
-            echo "public_suffix_list.dat gefunden."
-          fi
+          test -f "$PUBLIC_SUFFIX_PATH"
 
       - name: Create runtime hook for VLC
         run: |
           mkdir -p hooks
-          cat <<EOF > hooks/hook-vlc.py
+          cat <<'EOF' > hooks/hook-vlc.py
 import os, sys
-
 base = getattr(sys, "_MEIPASS", os.path.dirname(os.path.abspath(__file__)))
 lib_dir = os.path.join(base, "lib")
 plugins_dir = os.path.join(base, "plugins")
@@ -313,7 +260,7 @@ if os.path.isdir(plugins_dir):
     os.environ["VLC_DATA_PATH"] = base
 EOF
 
-      - name: Build Executable
+      - name: Build Executable (onedir for VLC stability)
         run: |
           rm -rf build dist
 
@@ -328,7 +275,6 @@ EOF
             --runtime-hook hooks/hook-vlc.py \
             TMP-Networks-Browser-Mini.py
 
-          echo "Inhalt von dist/:"
           ls -R dist/
 
       - name: Upload Build Artifact
