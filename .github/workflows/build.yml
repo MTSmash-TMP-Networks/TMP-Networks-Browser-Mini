@@ -101,7 +101,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: TMP-Networks-Browser-Mini-Windows-Executable
-          path: dist\TMP-Networks-Browser-Mini.exe
+          path: dist/TMP-Networks-Browser-Mini.exe
           if-no-files-found: warn
           include-hidden-files: false
 
@@ -174,13 +174,15 @@ jobs:
           fi
 
           mkdir -p hooks
-          echo "import os, sys" > hooks/hook-vlc.py
-          echo "def set_ld_library_path():" >> hooks/hook-vlc.py
-          echo "    base_path = getattr(sys, '_MEIPASS', os.path.dirname(os.path.abspath(__file__)))" >> hooks/hook-vlc.py
-          echo "    vlc_lib_path = os.path.join(base_path, 'lib')" >> hooks/hook-vlc.py
-          echo "    if os.path.exists(vlc_lib_path):" >> hooks/hook-vlc.py
-          echo "        os.environ['DYLD_LIBRARY_PATH'] = vlc_lib_path + ':' + os.environ.get('DYLD_LIBRARY_PATH', '')" >> hooks/hook-vlc.py
-          echo "set_ld_library_path()" >> hooks/hook-vlc.py
+          cat <<EOF > hooks/hook-vlc.py
+import os, sys
+
+base = getattr(sys, "_MEIPASS", os.path.dirname(os.path.abspath(__file__)))
+lib_dir = os.path.join(base, "lib")
+
+if os.path.isdir(lib_dir):
+    os.environ["DYLD_LIBRARY_PATH"] = lib_dir + ":" + os.environ.get("DYLD_LIBRARY_PATH", "")
+EOF
 
           pyinstaller --windowed \
             --icon=assets/logo.icns \
@@ -333,5 +335,5 @@ EOF
         uses: actions/upload-artifact@v4
         with:
           name: TMP-Networks-Browser-Mini-Linux-Executable
-          path: dist/TMP-Networks-Browser-Mini/
+          path: dist/TMP-Networks-Browser-Mini
           if-no-files-found: warn
