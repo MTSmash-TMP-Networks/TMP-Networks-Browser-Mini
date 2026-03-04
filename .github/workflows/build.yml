@@ -149,12 +149,12 @@ jobs:
 
           mkdir -p hooks
           cat <<'EOF' > hooks/hook-vlc.py
-import os, sys
-base = getattr(sys, "_MEIPASS", os.path.dirname(os.path.abspath(__file__)))
-lib_dir = os.path.join(base, "lib")
-if os.path.isdir(lib_dir):
-    os.environ["DYLD_LIBRARY_PATH"] = lib_dir + ":" + os.environ.get("DYLD_LIBRARY_PATH", "")
-EOF
+          import os, sys
+          base = getattr(sys, "_MEIPASS", os.path.dirname(os.path.abspath(__file__)))
+          lib_dir = os.path.join(base, "lib")
+          if os.path.isdir(lib_dir):
+              os.environ["DYLD_LIBRARY_PATH"] = lib_dir + ":" + os.environ.get("DYLD_LIBRARY_PATH", "")
+          EOF
 
           pyinstaller --windowed \
             --icon=assets/logo.icns \
