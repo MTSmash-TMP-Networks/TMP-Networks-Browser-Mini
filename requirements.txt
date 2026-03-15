@@ -7,4 +7,3 @@ appdirs
 whois
 m3u8
 yt-dlp
-csv
