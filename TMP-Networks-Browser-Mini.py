@@ -798,10 +798,15 @@ class CredentialsManagerDialog(QDialog):
         domain = self._selected_domain()
         if not domain:
             return
-        url = QUrl(f"https://{domain}")
-        QDesktopServices.openUrl(url)
+        main_window = self.parent()
+        if main_window and hasattr(main_window, "add_new_tab"):
+            main_window.add_new_tab(QUrl(f"https://{domain}"), domain)
+            self.accept()
+        else:
+            QMessageBox.warning(self, "Fehler", "Der Hauptbrowser ist nicht verfügbar.")
 
     def edit_credentials(self):
+
         domain = self._selected_domain()
         if not domain:
             return
@@ -1957,7 +1962,8 @@ class Browser(QMainWindow):
             if not item:
                 return
             domain = item.data(Qt.ItemDataRole.UserRole) or item.text()
-            QDesktopServices.openUrl(QUrl(f"https://{domain}"))
+            self.add_new_tab(QUrl(f"https://{domain}"), domain)
+            dlg.accept()
 
         open_btn.clicked.connect(open_selected_site)
         table.itemDoubleClicked.connect(lambda _: open_selected_site())
