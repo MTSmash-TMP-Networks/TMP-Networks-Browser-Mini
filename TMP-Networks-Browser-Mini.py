@@ -1985,44 +1985,182 @@ class Browser(QMainWindow):
         dlg.exec()
 
     def get_credentials_for_url(self, url):
-        domain = QUrl(url).host()
-        return self.data["credentials"].get(domain, None)
-
-    def check_credentials(self, browser):
+        domain = QUrl(url).host().lower().strip()
+        if not domain:
+            return N    def check_credentials(self, browser):
         url = browser.url().toString()
         credentials = self.get_credentials_for_url(url)
         if not credentials:
             return
+
         js_code = """
         (function() {
-            var inputs = document.getElementsByTagName('input');
-            for(var i=0; i<inputs.length; i++) {
-                if(inputs[i].type && inputs[i].type.toLowerCase() === 'password') return true;
+            const forms = Array.from(document.forms || []);
+            const passwordFields = Array.from(document.querySelectorAll('input[type="password"]'));
+            const visiblePasswordFields = passwordFields.filter(el => {
+                const style = window.getComputedStyle(el);
+                return style.display !== 'none' && style.visibility !== 'hidden' && !el.disabled;
+            });
+
+            let bestForm = null;
+            if (visiblePasswordFields.length > 0) {
+                const pw = visiblePasswordFields[0];
+                bestForm = pw.form || pw.closest('form');
             }
-            return false;
+
+            return {
+                has_password_field: visiblePasswordFields.length > 0,
+                has_form: !!bestForm,
+                password_count: visiblePasswordFields.length
+            };
         })();
         """
         browser.page().runJavaScript(js_code, lambda result: self._handle_password_field(result, credentials, browser))
 
-    def _handle_password_field(self, has_password_field, credentials, browser):
+    def _handle_password_field(self, result, credentials, browser):
+        has_password_field = False
+        if isinstance(result, dict):
+            has_password_field = bool(result.get("has_password_field"))
+        elif isinstance(result, bool):
+            has_password_field = result
+
         if not has_password_field:
             return
-        if QMessageBox.question(self, "Zugangsdaten verfügbar", "Einfügen?",
+
+        if QMessageBox.question(self, "Zugangsdaten verfügbar", "Gespeicherte Zugangsdaten für diese Seite einfügen?",
                                 QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-                                QMessageBox.StandardButton.No) == QMessageBox.StandardButton.Yes:
-            username = credentials['username'].replace('"', '\\"')
-            password = credentials['password'].replace('"', '\\"')
-            js_code = f"""
-            (function() {{
-                var inputs = document.getElementsByTagName('input');
-                for(var i=0; i<inputs.length; i++) {{
-                    var t = (inputs[i].type || "").toLowerCase();
-                    if(t === 'text' || t === 'email') inputs[i].value = \"{username}\";
-                    if(t === 'password') inputs[i].value = \"{password}\";
+                                QMessageBox.StandardButton.No) != QMessageBox.StandardButton.Yes:
+            return
+
+        username = credentials.get('username', '').replace('"', '\\"')
+        password = credentials.get('password', '').replace('"', '\\"')
+
+        js_code = f"""
+        (function() {{
+            function isVisible(el) {{
+                if (!el) return false;
+                const style = window.getComputedStyle(el);
+                const rect = el.getBoundingClientRect();
+                return style.display !== 'none' && style.visibility !== 'hidden' && !el.disabled && rect.width >= 0 && rect.height >= 0;
+            }}
+
+            function triggerEvents(el) {{
+                if (!el) return;
+                el.dispatchEvent(new Event('input', {{ bubbles: true }}));
+                el.dispatchEvent(new Event('change', {{ bubbles: true }}));
+                el.dispatchEvent(new Event('blur', {{ bubbles: true }}));
+            }}
+
+            function scoreUsernameField(el) {{
+                if (!el || !isVisible(el)) return -999;
+                const type = (el.type || '').toLowerCase();
+                if (!['text', 'email', 'tel'].includes(type)) return -999;
+
+                const attrs = [
+                    el.name || '', el.id || '', el.placeholder || '',
+                    el.getAttribute('autocomplete') || '', el.getAttribute('aria-label') || ''
+                ].join(' ').toLowerCase();
+
+                let score = 0;
+                if (type === 'email') score += 40;
+                if (attrs.includes('user')) score += 60;
+                if (attrs.includes('login')) score += 55;
+                if (attrs.includes('email')) score += 50;
+                if (attrs.includes('mail')) score += 30;
+                if (attrs.includes('identifier')) score += 35;
+                if ((el.value || '').trim()) score -= 20;
+                return score;
+            }}
+
+            const passwordFields = Array.from(document.querySelectorAll('input[type="password"]')).filter(isVisible);
+            if (!passwordFields.length) return false;
+
+            let passwordField = passwordFields[0];
+            let container = passwordField.form || passwordField.closest('form') || passwordField.parentElement || document.body;
+
+            const candidates = Array.from(container.querySelectorAll('input')).filter(isVisible);
+            let usernameField = null;
+            let bestScore = -999;
+            for (const el of candidates) {{
+                if (el === passwordField) continue;
+                const s = scoreUsernameField(el);
+                if (s > bestScore) {{
+                    bestScore = s;
+                    usernameField = el;
                 }}
-            }})();
-            """
-            browser.page().runJavaScript(js_code)
+            }}
+
+            if (!usernameField) {{
+                const allInputs = Array.from(document.querySelectorAll('input')).filter(isVisible);
+                for (const el of allInputs) {{
+                    if (el === passwordField) continue;
+                    const s = scoreUsernameField(el);
+                    if (s > bestScore) {{
+                        bestScore = s;
+                        usernameField = el;
+                    }}
+                }}
+            }}
+
+            if (usernameField && !usernameField.value) {{
+                usernameField.focus();
+                usernameField.value = \"{username}\";
+                triggerEvents(usernameField);
+            }}
+
+            passwordField.focus();
+            passwordField.value = \"{password}\";
+            triggerEvents(passwordField);
+
+            return true;
+        }})();
+        """
+        browser.page().runJavaScript(js_code)
+
+        # Manche SPAs rendern das Loginformular erst leicht verzögert.
+        QTimer.singleShot(1200, lambda b=browser, c=credentials: self._retry_fill_credentials(b, c))
+
+    def _retry_fill_credentials(self, browser, credentials):
+        if browser != self.tabs.currentWidget():
+            return
+
+        username = credentials.get('username', '').replace('"', '\\"')
+        password = credentials.get('password', '').replace('"', '\\"')
+
+        js_code = f"""
+        (function() {{
+            function isVisible(el) {{
+                if (!el) return false;
+                const style = window.getComputedStyle(el);
+                return style.display !== 'none' && style.visibility !== 'hidden' && !el.disabled;
+            }}
+            function triggerEvents(el) {{
+                if (!el) return;
+                el.dispatchEvent(new Event('input', {{ bubbles: true }}));
+                el.dispatchEvent(new Event('change', {{ bubbles: true }}));
+            }}
+
+            const pw = Array.from(document.querySelectorAll('input[type="password"]')).find(isVisible);
+            if (!pw) return false;
+
+            if (!pw.value) {{
+                pw.value = \"{password}\";
+                triggerEvents(pw);
+            }}
+
+            const user = Array.from(document.querySelectorAll('input[type="email"], input[type="text"], input[type="tel"]'))
+                .find(el => isVisible(el) && !el.value);
+            if (user) {{
+                const attrs = [user.name || '', user.id || '', user.placeholder || '', user.getAttribute('autocomplete') || ''].join(' ').toLowerCase();
+                if (attrs.includes('user') || attrs.includes('mail') || attrs.includes('email') || attrs.includes('login') || user.type === 'email') {{
+                    user.value = \"{username}\";
+                    triggerEvents(user);
+                }}
+            }}
+            return true;
+        }})();
+        """
+        browser.page().runJavaScript(js_code)
 
     def handle_youtube_via_yt_dlp(self, youtube_url):
         ydl_opts = self._ytdlp_base_opts()
