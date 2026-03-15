@@ -732,18 +732,25 @@ class CredentialsManagerDialog(QDialog):
     def __init__(self, parent=None, credentials_dict=None):
         super().__init__(parent)
         self.setWindowTitle("Passwörter verwalten")
-        self.resize(520, 340)
+        self.resize(760, 420)
         self.credentials = credentials_dict.copy() if credentials_dict else {}
 
         layout = QVBoxLayout(self)
-        self.list_widget = QListWidget()
-        for domain in sorted(self.credentials.keys()):
-            self.list_widget.addItem(QListWidgetItem(domain))
-        layout.addWidget(self.list_widget)
+
+        self.table = QTableWidget()
+        self.table.setColumnCount(3)
+        self.table.setHorizontalHeaderLabels(["Domain", "Benutzername", "Passwort"])
+        self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+        self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+        self.table.setSelectionMode(QTableWidget.SelectionMode.SingleSelection)
+        self.table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        layout.addWidget(self.table)
 
         btn_layout = QHBoxLayout()
+        open_btn = QPushButton("Webseite öffnen")
         edit_btn = QPushButton("Bearbeiten")
         delete_btn = QPushButton("Löschen")
+        btn_layout.addWidget(open_btn)
         btn_layout.addWidget(edit_btn)
         btn_layout.addWidget(delete_btn)
         layout.addLayout(btn_layout)
@@ -752,39 +759,76 @@ class CredentialsManagerDialog(QDialog):
         close_btn.clicked.connect(self.accept)
         layout.addWidget(close_btn)
 
+        open_btn.clicked.connect(self.open_website)
         edit_btn.clicked.connect(self.edit_credentials)
         delete_btn.clicked.connect(self.delete_credentials)
+        self.table.itemDoubleClicked.connect(lambda _: self.open_website())
 
-    def edit_credentials(self):
-        item = self.list_widget.currentItem()
+        self.refresh_table()
+
+    def refresh_table(self):
+        domains = sorted(self.credentials.keys())
+        self.table.setRowCount(len(domains))
+        for row, domain in enumerate(domains):
+            creds = self.credentials.get(domain, {})
+            username = creds.get("username", "")
+            password = creds.get("password", "")
+
+            domain_item = QTableWidgetItem(domain)
+            domain_item.setData(Qt.ItemDataRole.UserRole, domain)
+            user_item = QTableWidgetItem(username)
+            pass_item = QTableWidgetItem(password)
+
+            self.table.setItem(row, 0, domain_item)
+            self.table.setItem(row, 1, user_item)
+            self.table.setItem(row, 2, pass_item)
+
+    def _selected_domain(self):
+        row = self.table.currentRow()
+        if row < 0:
+            QMessageBox.information(self, "Info", "Bitte wählen Sie einen Eintrag aus.")
+            return None
+        item = self.table.item(row, 0)
         if not item:
             QMessageBox.information(self, "Info", "Bitte wählen Sie einen Eintrag aus.")
+            return None
+        return item.data(Qt.ItemDataRole.UserRole) or item.text()
+
+    def open_website(self):
+        domain = self._selected_domain()
+        if not domain:
             return
-        domain = item.text()
+        url = QUrl(f"https://{domain}")
+        QDesktopServices.openUrl(url)
+
+    def edit_credentials(self):
+        domain = self._selected_domain()
+        if not domain:
+            return
         creds = self.credentials[domain]
-        dlg = LoginDialog(self, username=creds["username"], password=creds["password"])
+        dlg = LoginDialog(self, username=creds.get("username", ""), password=creds.get("password", ""))
         if dlg.exec() == QDialog.DialogCode.Accepted:
             u, p = dlg.get_credentials()
             if u and p:
                 self.credentials[domain] = {"username": u, "password": p}
+                self.refresh_table()
                 QMessageBox.information(self, "Erfolg", f"Zugangsdaten für {domain} geändert.")
             else:
                 QMessageBox.warning(self, "Warnung", "Benutzername und Passwort dürfen nicht leer sein.")
 
     def delete_credentials(self):
-        item = self.list_widget.currentItem()
-        if not item:
-            QMessageBox.information(self, "Info", "Bitte wählen Sie einen Eintrag aus.")
+        domain = self._selected_domain()
+        if not domain:
             return
-        domain = item.text()
         if QMessageBox.question(self, "Löschen", f"{domain} wirklich löschen?",
                                 QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
                                 QMessageBox.StandardButton.No) == QMessageBox.StandardButton.Yes:
             del self.credentials[domain]
-            self.list_widget.takeItem(self.list_widget.row(item))
+            self.refresh_table()
 
 
 class EditFavoriteDialog(QDialog):
+
     def __init__(self, parent=None, title="", url=""):
         super().__init__(parent)
         self.setWindowTitle("Favorit bearbeiten")
@@ -1870,22 +1914,58 @@ class Browser(QMainWindow):
         if not self.data["credentials"]:
             QMessageBox.information(self, "Info", "Keine Zugangsdaten vorhanden.")
             return
-        creds_text = ""
-        for domain, creds in sorted(self.data["credentials"].items()):
-            creds_text += f"Domain: {domain}\nBenutzername: {creds['username']}\nPasswort: {creds['password']}\n\n"
+
         dlg = QDialog(self)
         dlg.setWindowTitle("Gespeicherte Zugangsdaten")
-        dlg.resize(520, 360)
+        dlg.resize(820, 420)
         layout = QVBoxLayout(dlg)
-        label = QLabel(creds_text)
-        label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
-        layout.addWidget(label)
+
+        table = QTableWidget()
+        table.setColumnCount(3)
+        table.setHorizontalHeaderLabels(["Domain", "Benutzername", "Passwort"])
+        table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+        table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+        table.setSelectionMode(QTableWidget.SelectionMode.SingleSelection)
+        table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+
+        domains = sorted(self.data["credentials"].keys())
+        table.setRowCount(len(domains))
+        for row, domain in enumerate(domains):
+            creds = self.data["credentials"].get(domain, {})
+            domain_item = QTableWidgetItem(domain)
+            domain_item.setData(Qt.ItemDataRole.UserRole, domain)
+            table.setItem(row, 0, domain_item)
+            table.setItem(row, 1, QTableWidgetItem(creds.get("username", "")))
+            table.setItem(row, 2, QTableWidgetItem(creds.get("password", "")))
+
+        layout.addWidget(table)
+
+        btn_layout = QHBoxLayout()
+        open_btn = QPushButton("Webseite öffnen")
         close_btn = QPushButton("Schließen")
+        btn_layout.addWidget(open_btn)
+        btn_layout.addStretch()
+        btn_layout.addWidget(close_btn)
+        layout.addLayout(btn_layout)
+
+        def open_selected_site():
+            row = table.currentRow()
+            if row < 0:
+                QMessageBox.information(dlg, "Info", "Bitte wählen Sie einen Eintrag aus.")
+                return
+            item = table.item(row, 0)
+            if not item:
+                return
+            domain = item.data(Qt.ItemDataRole.UserRole) or item.text()
+            QDesktopServices.openUrl(QUrl(f"https://{domain}"))
+
+        open_btn.clicked.connect(open_selected_site)
+        table.itemDoubleClicked.connect(lambda _: open_selected_site())
         close_btn.clicked.connect(dlg.accept)
-        layout.addWidget(close_btn)
         dlg.exec()
 
     def manage_credentials(self):
+
         if not self.data["credentials"]:
             QMessageBox.information(self, "Info", "Keine Zugangsdaten vorhanden.")
             return
