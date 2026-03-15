@@ -1,16 +1,17 @@
 #!/usr/bin/env python3
 # TMP-Networks-Browser-Mini.py
 #
-# NEU (Instagram/yt-dlp):
-# - Exportiert Cookies für yt-dlp aus dem QtWebEngine Profil:
-#  1) bevorzugt aus Chromium Cookie DB (persistenter Store)
-#   2) fallback: aus QWebEngineCookieStore Events
-# - Übergibt an yt-dlp:
-#   - cookiefile
-#   - user_agent (aus QWebEngineProfile)
-#   - http_headers (Accept-Language, Referer)
+# NEU:
+# - Import von Passwörtern aus Mozilla Firefox CSV
+#   Menü: Passwörter -> Aus Mozilla Firefox CSV importieren
 #
-# Hinweis: Instagram Stories sind sehr restriktiv. Oft braucht yt-dlp eine konkrete Story-URL (mit ID).
+# Bestehende Features:
+# - QtWebEngine Browser
+# - Favoriten / Chronik / Passwörter
+# - Cookie-Export für yt-dlp
+# - VLC / yt-dlp Integration
+# - Adblock-Basis
+# - Reader Mode
 
 import os
 import sys
@@ -33,10 +34,10 @@ _early_disable_proxy_for_qtwebengine()
 
 import json
 import re
+import csv
 import socket
 import sqlite3
 import shutil
-import time
 from datetime import datetime
 from functools import partial
 import importlib.util
@@ -171,14 +172,10 @@ def google_search_url(query: str) -> QUrl:
 # Cookie Export (Fallback): QWebEngineCookieStore -> cookies.txt
 # ---------------------------
 class WebEngineCookieStoreJar:
-    """
-    Fallback: sammelt Cookies aus cookieStore() Events und schreibt Netscape cookies.txt.
-    Das kann bei Instagram unvollständig sein, ist aber besser als nichts.
-    """
     def __init__(self, profile: QWebEngineProfile, cookie_txt_path: str, parent=None):
         self.profile = profile
         self.cookie_txt_path = cookie_txt_path
-        self.cookies = {}  # (domain, path, name) -> dict
+        self.cookies = {}
 
         store = self.profile.cookieStore()
         store.cookieAdded.connect(self._on_cookie_added)
@@ -249,23 +246,16 @@ class WebEngineCookieStoreJar:
 # Cookie Export (Preferred): Chromium Cookie DB -> cookies.txt
 # ---------------------------
 class ChromiumCookieDBExporter:
-    """
-    Liest Cookies aus QtWebEngine persistent storage (Chromium Cookie DB) und
-    exportiert sie als Netscape cookies.txt für yt-dlp.
-
-    Das ist i.d.R. näher an "echten Browser Cookies" als cookieStore Events.
-    """
     def __init__(self, profile: QWebEngineProfile, cookie_txt_path: str, parent=None):
         self.profile = profile
         self.cookie_txt_path = cookie_txt_path
         self._timer = QTimer(parent)
-        self._timer.setInterval(4000)  # alle 4 Sekunden aktualisieren (leichtgewichtig)
+        self._timer.setInterval(4000)
         self._timer.timeout.connect(self.export_now)
         self._timer.start()
 
     def _possible_cookie_db_paths(self) -> list[str]:
         base = self.profile.persistentStoragePath()
-        # QtWebEngine legt je nach Version/OS unterschiedliche Strukturen an.
         candidates = [
             os.path.join(base, "Default", "Cookies"),
             os.path.join(base, "Cookies"),
@@ -273,7 +263,6 @@ class ChromiumCookieDBExporter:
             os.path.join(base, "Network", "Cookies"),
             os.path.join(base, "Default", "Network", "Cookies"),
         ]
-        # zusätzlich: alles durchsuchen (nur 1 Ebene tief)
         try:
             if os.path.isdir(base):
                 for root, dirs, files in os.walk(base):
@@ -282,7 +271,6 @@ class ChromiumCookieDBExporter:
         except Exception:
             pass
 
-        # unique
         out = []
         for p in candidates:
             if p not in out:
@@ -300,26 +288,15 @@ class ChromiumCookieDBExporter:
         if not db_path:
             return
 
-        # Chromium hält DB oft gelockt -> copy to temp
         tmp_db = os.path.join(os.path.dirname(self.cookie_txt_path), "Cookies.tmp.sqlite")
         try:
             shutil.copy2(db_path, tmp_db)
         except Exception:
             return
 
-        # Chrome/Chromium cookies schema:
-        # host_key, name, value, path, expires_utc, is_secure, is_httponly, samesite, encrypted_value
-        # value kann leer sein, dann encrypted_value gesetzt (macOS Keychain nötig).
-        # QtWebEngine speichert auf macOS oft ebenfalls encrypted_value.
-        # -> Wir können nur die unencrypted "value" exportieren. Wenn alles encrypted ist,
-        #    geht es ohne Entschlüsselung nicht.
-        #
-        # Trotzdem: häufig sind genug Cookies unencrypted oder yt-dlp kommt mit csrftoken/sessionid klar.
         try:
             con = sqlite3.connect(tmp_db)
             cur = con.cursor()
-
-            # Tabelle heißt meist "cookies"
             cur.execute("""
                 SELECT host_key, name, value, path, expires_utc, is_secure, is_httponly
                 FROM cookies
@@ -338,7 +315,6 @@ class ChromiumCookieDBExporter:
             except Exception:
                 pass
 
-        # Netscape export
         try:
             os.makedirs(os.path.dirname(self.cookie_txt_path), exist_ok=True)
             with open(self.cookie_txt_path, "w", encoding="utf-8") as f:
@@ -348,7 +324,6 @@ class ChromiumCookieDBExporter:
                 for host_key, name, value, path, expires_utc, is_secure, is_httponly in rows:
                     if not host_key or not name:
                         continue
-                    # Wenn value leer ist, ist es evtl. encrypted_value -> können wir hier nicht
                     if value is None:
                         continue
                     value = str(value)
@@ -362,8 +337,6 @@ class ChromiumCookieDBExporter:
                     include_sub = "TRUE"
                     secure = "TRUE" if int(is_secure) == 1 else "FALSE"
 
-                    # expires_utc ist "microseconds since 1601-01-01" (Chrome time)
-                    # convert to unix epoch seconds
                     try:
                         exp = int(expires_utc)
                         if exp <= 0:
@@ -510,7 +483,6 @@ class DownloadWorker(QWidget):
         if self.user_agent:
             ydl_opts['user_agent'] = self.user_agent
 
-        # Viele Services brauchen gleiche Header wie Browser
         headers = {"Accept-Language": "de-DE,de;q=0.9,en;q=0.8"}
         if self.referer:
             headers["Referer"] = self.referer
@@ -727,8 +699,7 @@ class ReaderDialog(QDialog):
 
 
 # ---------------------------
-# Kleine Dialoge (Favoriten/Passwörter/History/Downloads/Plugins)
-# (wie zuvor, unverändert)
+# Kleine Dialoge
 # ---------------------------
 class LoginDialog(QDialog):
     def __init__(self, parent=None, username="", password=""):
@@ -1168,6 +1139,10 @@ class Browser(QMainWindow):
         manage_pass_action.triggered.connect(self.manage_credentials)
         self.pass_menu.addAction(manage_pass_action)
 
+        import_firefox_csv_action = QAction("Aus Mozilla Firefox CSV importieren", self)
+        import_firefox_csv_action.triggered.connect(self.import_firefox_passwords_csv)
+        self.pass_menu.addAction(import_firefox_csv_action)
+
         self.history_menu = QMenu("Chronik", self)
         menu_bar.addMenu(self.history_menu)
         show_history_action = QAction("Chronik anzeigen", self)
@@ -1273,26 +1248,18 @@ class Browser(QMainWindow):
         self.glow_bar.setVisible(False)
         self.status.addPermanentWidget(self.glow_bar)
 
-        # Profile
         self.profile = QWebEngineProfile("TMPNetworksBrowserProfile", self)
         self.profile.setPersistentStoragePath(json_dir)
         self.profile.setPersistentCookiesPolicy(QWebEngineProfile.PersistentCookiesPolicy.ForcePersistentCookies)
         self.profile.downloadRequested.connect(self.on_downloadRequested)
 
-        # Cookie export paths
         self.cookie_txt_path = os.path.join(json_dir, "cookies.txt")
-
-        # Preferred: export from Chromium cookie DB (best chance)
         self.cookie_db_exporter = ChromiumCookieDBExporter(self.profile, self.cookie_txt_path, parent=self)
-
-        # Fallback: cookieStore events (also writes cookies.txt)
         self.cookie_store_jar = WebEngineCookieStoreJar(self.profile, self.cookie_txt_path, parent=self)
 
-        # Adblock
         self.adblock = AdBlockInterceptor(enabled=bool(self.data.get("adblock_enabled", True)), parent=self)
         self.profile.setUrlRequestInterceptor(self.adblock)
 
-        # user-agent cache
         self._webengine_user_agent = None
         self._refresh_user_agent()
 
@@ -1311,7 +1278,6 @@ class Browser(QMainWindow):
     def get_user_agent_for_ytdlp(self):
         return self._webengine_user_agent
 
-    # --- WebView Factory ---
     def create_configured_webview(self) -> CustomWebEngineView:
         view = CustomWebEngineView(self, self.profile)
 
@@ -1357,7 +1323,6 @@ class Browser(QMainWindow):
         if idx >= 0 and not icon.isNull():
             self.tabs.setTabIcon(idx, icon)
 
-    # --- Tabs ---
     def add_new_tab(self, qurl=None, label="Neue Seite"):
         if not qurl:
             qurl = QUrl("https://www.google.com")
@@ -1389,7 +1354,6 @@ class Browser(QMainWindow):
         if url_str and url_str != "about:blank":
             self.add_to_history(title, url_str)
 
-    # --- Navigation ---
     def navigate_to_url_or_search(self):
         text = self.url_bar.text().strip()
         if not text:
@@ -1406,7 +1370,6 @@ class Browser(QMainWindow):
         q = normalize_to_url(url_string) if looks_like_url(url_string) else google_search_url(url_string)
         self.tabs.currentWidget().setUrl(q)
 
-    # --- Reader Mode ---
     def open_reader_mode(self):
         browser = self.tabs.currentWidget()
         if not browser:
@@ -1478,14 +1441,12 @@ class Browser(QMainWindow):
         dlg = ReaderDialog(title, text, url, self)
         dlg.exec()
 
-    # --- Adblock ---
     def toggle_adblock(self, checked: bool):
         self.data["adblock_enabled"] = bool(checked)
         self.save_data()
         self.adblock.setEnabled(bool(checked))
         self.status.showMessage(f"Adblock: {'AN' if checked else 'AUS'} (Reload empfohlen)", 4000)
 
-    # --- Download Manager ---
     def open_download_manager(self):
         if not self.download_manager_dialog:
             self.download_manager_dialog = DownloadManagerDialog(self)
@@ -1583,7 +1544,6 @@ class Browser(QMainWindow):
         max_progress = max(dl.get("progress_percent", 0) for dl in self.active_downloads_info)
         self.download_progress_bar.setValue(max_progress)
 
-    # --- yt-dlp download queue ---
     def _ytdlp_base_opts(self):
         opts = {'quiet': True, 'no_warnings': True}
         ua = self.get_user_agent_for_ytdlp()
@@ -1595,7 +1555,6 @@ class Browser(QMainWindow):
         return opts
 
     def download_video_url(self, url):
-        # Hinweis für Stories ohne ID
         if "instagram.com/stories/" in url and url.rstrip("/").count("/") <= 4:
             QMessageBox.information(
                 self,
@@ -1775,12 +1734,6 @@ class Browser(QMainWindow):
         if self.download_manager_dialog and self.download_manager_dialog.isVisible():
             self.download_manager_dialog.refresh_table()
 
-    # --- Favoriten / Passwörter / Chronik / Plugins / Whois / yt-dlp scan/play ---
-    # Diese Teile sind aus Platzgründen identisch zu deiner Version und wurden hier nicht erneut geändert,
-    # außer dass download_video_url/yt-dlp jetzt Cookies/Headers nutzt.
-    #
-    # Damit der Code lauffähig bleibt, folgen die restlichen Methoden in kompakter Form:
-
     def add_favorite(self):
         current_url = self.tabs.currentWidget().url().toString()
         current_title = self.tabs.currentWidget().page().title()
@@ -1844,6 +1797,74 @@ class Browser(QMainWindow):
                 QMessageBox.information(self, "Erfolg", f"Zugangsdaten für {domain} gespeichert.")
             else:
                 QMessageBox.warning(self, "Warnung", "Benutzername und Passwort dürfen nicht leer sein.")
+
+    def import_firefox_passwords_csv(self):
+        file_path, _ = QFileDialog.getOpenFileName(
+            self,
+            "Firefox-Passwort-CSV auswählen",
+            "",
+            "CSV-Dateien (*.csv);;Alle Dateien (*)"
+        )
+        if not file_path:
+            return
+
+        reply = QMessageBox.warning(
+            self,
+            "Sicherheitswarnung",
+            "Firefox exportiert Zugangsdaten als lesbare CSV-Datei.\n\n"
+            "Bitte importiere sie nur von einem vertrauenswürdigen Speicherort "
+            "und lösche die Datei danach wieder.\n\n"
+            "Fortfahren?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No
+        )
+        if reply != QMessageBox.StandardButton.Yes:
+            return
+
+        imported = 0
+        skipped = 0
+        errors = []
+
+        try:
+            with open(file_path, "r", encoding="utf-8-sig", newline="") as f:
+                reader = csv.DictReader(f)
+
+                for row in reader:
+                    try:
+                        url = (row.get("url") or row.get("hostname") or "").strip()
+                        username = (row.get("username") or "").strip()
+                        password = (row.get("password") or "").strip()
+
+                        if not url or not password:
+                            skipped += 1
+                            continue
+
+                        domain = QUrl(url).host().strip().lower()
+                        if not domain:
+                            skipped += 1
+                            continue
+
+                        self.data["credentials"][domain] = {
+                            "username": username,
+                            "password": password
+                        }
+                        imported += 1
+
+                    except Exception as e:
+                        errors.append(str(e))
+
+            self.save_data()
+
+            msg = f"{imported} Einträge importiert."
+            if skipped:
+                msg += f"\n{skipped} Einträge übersprungen."
+            if errors:
+                msg += f"\n{len(errors)} Fehler aufgetreten."
+
+            QMessageBox.information(self, "Firefox-Import", msg)
+
+        except Exception as e:
+            QMessageBox.critical(self, "Import-Fehler", f"CSV konnte nicht importiert werden:\n{e}")
 
     def view_credentials(self):
         if not self.data["credentials"]:
@@ -1910,15 +1931,14 @@ class Browser(QMainWindow):
                 var inputs = document.getElementsByTagName('input');
                 for(var i=0; i<inputs.length; i++) {{
                     var t = (inputs[i].type || "").toLowerCase();
-                    if(t === 'text' || t === 'email') inputs[i].value = "{username}";
-                    if(t === 'password') inputs[i].value = "{password}";
+                    if(t === 'text' || t === 'email') inputs[i].value = \"{username}\";
+                    if(t === 'password') inputs[i].value = \"{password}\";
                 }}
             }})();
             """
             browser.page().runJavaScript(js_code)
 
     def handle_youtube_via_yt_dlp(self, youtube_url):
-        # Für "Play in VLC" nutzt du weiterhin direct URLs. Cookies/Headers wären analog möglich.
         ydl_opts = self._ytdlp_base_opts()
         ydl_opts["format"] = "best"
         try:
