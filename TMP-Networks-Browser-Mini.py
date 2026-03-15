@@ -1987,7 +1987,22 @@ class Browser(QMainWindow):
     def get_credentials_for_url(self, url):
         domain = QUrl(url).host().lower().strip()
         if not domain:
-            return N    def check_credentials(self, browser):
+            return None
+
+        creds = self.data["credentials"]
+        if domain in creds:
+            return creds[domain]
+
+        # Fallback: auch Parent-Domain versuchen
+        parts = domain.split('.')
+        for i in range(1, len(parts) - 1):
+            candidate = '.'.join(parts[i:])
+            if candidate in creds:
+                return creds[candidate]
+
+        return None
+
+    def check_credentials(self, browser):
         url = browser.url().toString()
         credentials = self.get_credentials_for_url(url)
         if not credentials:
@@ -2032,8 +2047,8 @@ class Browser(QMainWindow):
                                 QMessageBox.StandardButton.No) != QMessageBox.StandardButton.Yes:
             return
 
-        username = credentials.get('username', '').replace('"', '\\"')
-        password = credentials.get('password', '').replace('"', '\\"')
+        username = credentials.get('username', '').replace('"', '\"')
+        password = credentials.get('password', '').replace('"', '\"')
 
         js_code = f"""
         (function() {{
@@ -2124,8 +2139,8 @@ class Browser(QMainWindow):
         if browser != self.tabs.currentWidget():
             return
 
-        username = credentials.get('username', '').replace('"', '\\"')
-        password = credentials.get('password', '').replace('"', '\\"')
+        username = credentials.get('username', '').replace('"', '\"')
+        password = credentials.get('password', '').replace('"', '\"')
 
         js_code = f"""
         (function() {{
